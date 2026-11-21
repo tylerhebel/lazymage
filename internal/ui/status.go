@@ -41,8 +41,8 @@ func (a *App) probeCmd() tea.Cmd {
 
 func (a *App) tickCmd() tea.Cmd {
 	secs := 2
-	if a.cfg != nil && a.cfg.RefreshSeconds > 0 {
-		secs = a.cfg.RefreshSeconds
+	if a.cfg != nil && a.eff().RefreshSeconds > 0 {
+		secs = a.eff().RefreshSeconds
 	}
 	d := time.Duration(secs) * time.Second
 	// During a lifecycle action, poll faster so per-service progress is live.
@@ -174,7 +174,16 @@ func (a *App) handleBackground(msg tea.Msg) (tea.Cmd, bool) {
 		if a.screen == screenMain && a.proj != nil && a.engine != engineStopped && a.probed {
 			cmds = append(cmds, a.psCmd())
 		}
+		if a.screen == screenMain && a.tab == tabGit && !a.showO && len(a.overlays) == 0 {
+			cmds = append(cmds, a.gitRefresh())
+		}
 		return tea.Batch(cmds...), true
+
+	case termDoneMsg:
+		return a.onTermDone(msg), true
+
+	case gitStatusMsg:
+		return a.onGitStatus(msg), true
 
 	case psMsg:
 		a.psBusy = false

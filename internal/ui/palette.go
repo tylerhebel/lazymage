@@ -103,11 +103,26 @@ func buildEntries(a *App) ([]paletteEntry, map[string]config.Scoped) {
 	add(aFEGruntWatch, "Grunt: watch", catFrontend, cmdOr(func() string { return j(b.Grunt("watch")) }), "grunt watch livereload less frontend")
 	add(aFEGruntFree, "Run a grunt command…", catFrontend, cmdOr(func() string { return j(b.Grunt("<args>")) }), "grunt free form custom frontend")
 	add(aFESetupGrunt, "Set up grunt (bin/setup-grunt, confirm)", catFrontend, "bin/setup-grunt", "setup grunt install configure frontend npm")
+	cronCmd := func(op string) string {
+		if hasProj && a.eff().IntegrationMode != config.ModeDockerOnly && a.proj.HasBin("cron") {
+			return "bin/cron " + op + " (in the terminal)"
+		}
+		return "service cron " + op + " in the PHP container"
+	}
+	add(aCronStart, "Cron: start", catOps, cronCmd("start"), "cron start enable schedule jobs")
+	add(aCronStop, "Cron: stop", catOps, cronCmd("stop"), "cron stop disable schedule jobs")
+	add(aCronStatus, "Cron: status", catOps, "service cron status (bin/rootnotty)", "cron status running schedule")
+	add(aXdebugHelp, "Xdebug: how to debug", catOps, "cookie-routed phpfpm-xdebug — steps for IDE and browser", "xdebug debug help phpstorm cookie session")
+	add(aXdebugSetup, "Xdebug: set up routing (bin/setup-nginx)", catOps, "bin/setup-nginx", "xdebug debug nginx routing setup cookie")
+	add(aXdebugCLI, "Xdebug: run a CLI command…", catOps, "bin/debug-cli <command> (in the terminal)", "xdebug debug cli command phpfpm-xdebug")
+	add(aXdebugOn, "Xdebug: enable (legacy bin/xdebug)", catOps, "bin/xdebug enable", "xdebug enable on debug")
+	add(aXdebugOff, "Xdebug: disable (legacy bin/xdebug)", catOps, "bin/xdebug disable", "xdebug disable off debug")
+	add(aXdebugStatus, "Xdebug: status (legacy bin/xdebug)", catOps, "bin/xdebug status", "xdebug status debug")
 	add(aDBShell, "MySQL client", catDB, cmdOr(func() string { return j(b.DBShell()) }), "mysql mariadb database db sql client shell console")
 	add(aDBDump, "Dump database…", catDB, cmdOr(func() string { return j(b.DBDump()) + " > backups/….sql.gz" }), "dump backup export database db mysqldump save")
 	add(aDBImport, "Import database dump… (confirm)", catDB, cmdOr(func() string { return j(b.DBImport()) + " < ….sql[.gz]" }), "import restore load database db dump sql")
 	add(aDBReplaceURL, "Replace base URLs… (confirm)", catDB, "preview, UPDATE core_config_data, cache:flush", "url base_url domain search replace database db config")
-	add(aShell, "Shell into PHP container", catProject, cmdOr(func() string { return j(b.Shell(a.cfg.Shell)) }), "shell bash zsh terminal ssh exec cli container php")
+	add(aShell, "Shell into PHP container", catProject, cmdOr(func() string { return j(b.Shell(a.eff().Shell)) }), "shell bash zsh terminal ssh exec cli container php")
 	add(aStorefront, "Open storefront", catProject, "open "+orUnknown(a.storefrontURL()), "open browser storefront site frontend web")
 	add(aAdmin, "Open admin", catProject, "open "+orUnknown(a.adminURL()), "open browser admin backend dashboard")
 	add(aCopyURL, "Copy storefront URL", catProject, "copy "+orUnknown(a.storefrontURL()), "copy clipboard url link")
@@ -119,6 +134,8 @@ func buildEntries(a *App) ([]paletteEntry, map[string]config.Scoped) {
 	add(aHelp, "Help", catApp, "every keybinding", "help keys keybindings shortcuts")
 	add(aNewCustom, "Create a custom command…", catApp, "name, command, prompts, shortcut, scope", "new create custom command add")
 	add(aManage, "Manage custom commands…", catApp, "run, edit, duplicate, delete, pin", "manage custom commands edit delete")
+	add(aBgList, "Background tasks…", catStack, fmt.Sprintf("%d task(s) — view output, stop", len(a.bgs)), "background tasks watch jobs running stop")
+	add(aSwitchProj, "Switch project…", catApp, fmt.Sprintf("%d known project(s), most recent first", len(a.cfg.Projects)), "switch project change open other recent multi")
 	add(aUpdate, "Update lazymage…", catApp, "download the newest release from github.com/"+update.Repo+" and replace "+a.opts.Version, "update upgrade new version release self install")
 	add(aQuit, "Quit", catApp, "exit lazymage", "quit exit close")
 

@@ -46,14 +46,34 @@ func (a *App) do(action string) tea.Cmd {
 		return a.quit()
 	case aUpdate:
 		return a.startUpdate()
+	case aSwitchProj:
+		if r := a.switchDisabled(); r != "" {
+			return a.setStatus(r, true)
+		}
+		a.push(newProjectPicker(a))
 	case aNextTab:
 		a.tab, a.showO = (min(a.tab, numTabs-1)+1)%numTabs, false
+		return a.onTab()
 	case aPrevTab:
 		a.tab, a.showO = (min(a.tab, numTabs)+numTabs-1)%numTabs, false
-	case aTab1, aTab2, aTab3:
+		return a.onTab()
+	case aTab1, aTab2, aTab3, aTab4:
 		a.tab, a.showO = int(action[len(action)-1]-'1'), false
+		return a.onTab()
 	case aRefresh:
+		if a.tab == tabGit {
+			return tea.Batch(a.refresh(), a.gitRefresh())
+		}
 		return a.refresh()
+	case aBgList:
+		if len(a.bgs) == 0 {
+			return a.setStatus("no background tasks — grunt watch runs there, and ctrl+b moves a running command there", false)
+		}
+		if len(a.bgs) == 1 {
+			a.push(&bgViewer{t: a.bgs[0]})
+		} else {
+			a.push(&bgList{})
+		}
 	case aCancelRun:
 		if a.run != nil {
 			a.run.Cancel()
@@ -100,11 +120,13 @@ func (a *App) do(action string) tea.Cmd {
 	case aShell:
 		return a.shell()
 	case aStorefront:
-		return openURL(a.cfg.Browser, a.storefrontURL(), "storefront")
+		return openURL(a.eff().Browser, a.storefrontURL(), "storefront")
 	case aAdmin:
-		return openURL(a.cfg.Browser, a.adminURL(), "admin")
+		return openURL(a.eff().Browser, a.adminURL(), "admin")
 	case aCopyURL:
 		return a.copyText(a.storefrontURL())
+	case aCronStart, aCronStop, aCronStatus, aXdebugSetup, aXdebugCLI, aXdebugHelp, aXdebugOn, aXdebugOff, aXdebugStatus:
+		return a.doOps(action)
 	case aFEThemes, aFEEditThemes, aFESetupGrunt, aFENpmInstall, aFEGruntBuild, aFEGruntLess, aFEGruntWatch, aFEGruntFree:
 		return a.doFrontend(action)
 
@@ -149,8 +171,8 @@ func (a *App) do(action string) tea.Cmd {
 // disabledReason says why an action cannot run right now ("" = it can).
 func (a *App) disabledReason(action string) string {
 	switch action {
-	case aPalette, aHelp, aSettings, aSetup, aQuit, aUpdate, aNewCustom, aManage, aEditConfig,
-		aNextTab, aPrevTab, aTab1, aTab2, aTab3, aCancelRun, aViewOutput:
+	case aPalette, aHelp, aSettings, aSetup, aQuit, aUpdate, aSwitchProj, aBgList, aNewCustom, aManage, aEditConfig,
+		aNextTab, aPrevTab, aTab1, aTab2, aTab3, aTab4, aCancelRun, aViewOutput:
 		return ""
 	}
 	if a.proj == nil {
@@ -206,7 +228,13 @@ func (a *App) disabledReason(action string) string {
 	switch action {
 	case aDBDump, aDBImport, aDBReplaceURL, aFEThemes:
 		return a.dbDisabled()
-	case aFESetupGrunt, aFENpmInstall, aFEGruntBuild, aFEGruntLess, aFEGruntWatch, aFEGruntFree:
+	case aFEGruntWatch:
+		return ""
+	case aXdebugHelp, aXdebugOn, aXdebugOff, aXdebugStatus:
+		return a.opsDisabled(action)
+	case aCronStart, aCronStop, aCronStatus, aXdebugSetup, aXdebugCLI:
+		return a.opsDisabled(action)
+	case aFESetupGrunt, aFENpmInstall, aFEGruntBuild, aFEGruntLess, aFEGruntFree:
 		return a.feDisabled()
 	case aDBShell:
 		if len(a.services) > 0 && plan.DBServiceFrom(a.services) == "" {
@@ -226,9 +254,17 @@ func (a *App) disabledReason(action string) string {
 	return ""
 }
 
+// onTab loads what a tab needs when it becomes visible.
+func (a *App) onTab() tea.Cmd {
+	if a.tab == tabGit {
+		return a.gitRefresh()
+	}
+	return nil
+}
+
 func (a *App) touchRecent(id string) {
 	switch id {
-	case aPalette, aHelp, aNextTab, aPrevTab, aTab1, aTab2, aTab3, aQuit, aCancelRun:
+	case aPalette, aHelp, aNextTab, aPrevTab, aTab1, aTab2, aTab3, aTab4, aQuit, aCancelRun:
 		return
 	}
 	out := []string{id}
@@ -241,9 +277,18 @@ func (a *App) touchRecent(id string) {
 }
 
 func (a *App) quit() tea.Cmd {
+	if a.run == nil && a.bgRunning() {
+		a.push(newConfirm("Quit lazymage?", "Background tasks are still running. Quitting stops them.", "Stop them and quit", func() tea.Cmd {
+			a.stopBackground()
+			a.logs.terminate()
+			return tea.Quit
+		}))
+		return nil
+	}
 	if a.run != nil {
 		a.push(newConfirm("Quit lazymage?", "A command is still running:\n\n$ "+a.out.title+"\n\nQuitting cancels it.", "Cancel it and quit", func() tea.Cmd {
 			a.run.Terminate()
+			a.stopBackground()
 			a.logs.terminate()
 			return tea.Quit
 		}))
@@ -303,6 +348,7 @@ func (a *App) startRun(argv []string, o runOpts) tea.Cmd {
 		return status
 	}
 	a.run = r
+	a.out.run = r
 	cmds := []tea.Cmd{a.out.focus(), runTick(id)}
 	if o.lifecycle {
 		cmds = append(cmds, a.psCmd())
@@ -329,6 +375,10 @@ func (a *App) routeChunk(c runner.Chunk) {
 		a.logs.onChunk(a, c)
 		return
 	}
+	if t := a.bgByRun(c.RunID); t != nil {
+		t.out.buf.Append(c.Data, c.Stderr)
+		return
+	}
 	if a.out != nil && a.out.runID == c.RunID {
 		a.out.buf.Append(c.Data, c.Stderr)
 	}
@@ -337,6 +387,9 @@ func (a *App) routeChunk(c runner.Chunk) {
 func (a *App) routeExit(e runner.Exited) tea.Cmd {
 	if a.logs.runID == e.RunID {
 		return a.logs.onExit(a, e)
+	}
+	if t := a.bgByRun(e.RunID); t != nil {
+		return a.bgExit(t, e)
 	}
 	if a.out == nil || a.out.runID != e.RunID {
 		return nil
@@ -556,7 +609,7 @@ func customID(sc config.Scoped) string {
 // --- shell, browser, clipboard, editor ---------------------------------------------
 
 func (a *App) shell() tea.Cmd {
-	argv := a.builder().Shell(a.cfg.Shell)
+	argv := a.builder().Shell(a.eff().Shell)
 	cmd := exec.Command(argv[0], argv[1:]...)
 	if strings.HasPrefix(argv[0], "bin/") {
 		cmd.Path = filepath.Join(a.proj.Root, argv[0])
@@ -645,7 +698,7 @@ func (a *App) copyText(s string) tea.Cmd {
 }
 
 func (a *App) editorArgv() []string {
-	ed := a.cfg.Editor
+	ed := a.eff().Editor
 	if ed == "" {
 		ed = os.Getenv("VISUAL")
 	}

@@ -46,6 +46,16 @@ const (
 	aFEGruntWatch = "frontend.gruntwatch"
 	aFEGruntFree  = "frontend.grunt"
 
+	aCronStart    = "cron.start"
+	aCronStop     = "cron.stop"
+	aCronStatus   = "cron.status"
+	aXdebugSetup  = "xdebug.setup"
+	aXdebugCLI    = "xdebug.cli"
+	aXdebugHelp   = "xdebug.help"
+	aXdebugOn     = "xdebug.enable"
+	aXdebugOff    = "xdebug.disable"
+	aXdebugStatus = "xdebug.status"
+
 	aDBDump       = "db.dump"
 	aDBImport     = "db.import"
 	aDBShell      = "db.shell"
@@ -57,6 +67,7 @@ const (
 	aNewCustom  = "app.newcustom"
 	aManage     = "app.manage"
 	aQuit       = "app.quit"
+	aSwitchProj = "app.switchproject"
 	aUpdate     = "app.update"
 	aPalette    = "app.palette"
 	aNextTab    = "nav.nexttab"
@@ -64,7 +75,9 @@ const (
 	aTab1       = "nav.tab1"
 	aTab2       = "nav.tab2"
 	aTab3       = "nav.tab3"
+	aTab4       = "nav.tab4"
 	aCancelRun  = "run.cancel"
+	aBgList     = "run.background"
 	aViewOutput = "run.view"
 )
 
@@ -88,6 +101,7 @@ var Keymap = []Binding{
 	{[]string{"1"}, aTab1, "Stack tab (start / restart the environment)", "Navigation", "global"},
 	{[]string{"2"}, aTab2, "Magento tab", "Navigation", "global"},
 	{[]string{"3"}, aTab3, "Composer tab", "Navigation", "global"},
+	{[]string{"4"}, aTab4, "Git tab (status of the repository holding src/)", "Navigation", "global"},
 	{[]string{"enter"}, "", "Run / open the selected item", "Navigation", "global"},
 	{[]string{"esc"}, "", "Back / close overlay", "Navigation", "global"},
 	{[]string{"pgup", "pgdown"}, "", "Scroll output a page", "Navigation", "global"},
@@ -95,6 +109,7 @@ var Keymap = []Binding{
 	{[]string{"x", "ctrl+p"}, aPalette, "Command palette", "App", "global"},
 	{[]string{"?"}, aHelp, "Help (this screen)", "App", "global"},
 	{[]string{"S"}, aSettings, "Settings", "App", "global"},
+	{[]string{"P"}, aSwitchProj, "Switch to another project", "App", "global"},
 	{[]string{"U"}, aUpdate, "Update lazymage to the newest release", "App", "global"},
 	{[]string{"q"}, aQuit, "Quit (confirms if a command is running)", "App", "global"},
 	{[]string{"ctrl+n"}, aNewCustom, "Create a custom command (in the palette)", "App", "palette"},
@@ -102,6 +117,8 @@ var Keymap = []Binding{
 	{[]string{"r"}, aRefresh, "Refresh header health and project facts", "Stack", "global"},
 	{[]string{"ctrl+c"}, aCancelRun, "Cancel the running command (not the app)", "Stack", "global"},
 	{[]string{"v"}, aViewOutput, "Show the last command's output", "Stack", "global"},
+	{[]string{"B"}, aBgList, "Background tasks: view output, stop", "Stack", "global"},
+	{[]string{"ctrl+b"}, "", "Move the running command to the background (in its output)", "Stack", "output"},
 
 	{[]string{"a"}, aLogsAll, "Logs — all services", "Logs", "logs"},
 	{[]string{"f"}, aLogsFollow, "Toggle log follow", "Logs", "logs"},
@@ -122,6 +139,10 @@ var Keymap = []Binding{
 
 	{[]string{"b"}, aFEGruntBuild, "Grunt: build a theme (clean, exec, less)", "Frontend", "global"},
 	{[]string{"m"}, aDBShell, "MySQL shell in the database container", "Database", "global"},
+
+	{[]string{"enter", "d"}, "", "Show the selected file's diff", "Git", "git"},
+	{[]string{"e"}, "", "Open the selected file in your editor", "Git", "git"},
+	{[]string{"L"}, "", "Open lazygit (or tig) in the repository", "Git", "git"},
 
 	{[]string{"enter"}, "", "Run the selected custom command", "Custom commands", "manage"},
 	{[]string{"e"}, "", "Edit custom command", "Custom commands", "manage"},
@@ -189,7 +210,7 @@ type helpSection struct {
 // helpSections builds the help overlay from the live keymap plus custom
 // command shortcuts — never a hand-maintained list.
 func helpSections(customs []config.Scoped) []helpSection {
-	order := []string{"Navigation", "App", "Stack", "Logs", "Commands", "Project", "Frontend", "Database", "Custom commands"}
+	order := []string{"Navigation", "App", "Stack", "Logs", "Commands", "Project", "Frontend", "Database", "Git", "Custom commands"}
 	byCat := map[string]*helpSection{}
 	for _, b := range Keymap {
 		s := byCat[b.Category]

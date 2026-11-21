@@ -25,7 +25,10 @@ type outputView struct {
 	offset    int
 	lifecycle bool
 	progress  []docker.Container
+	run       *runner.Run // the process, while it runs (foreground or background)
 }
+
+func (o *outputView) running() bool { return o.run != nil && o.exit == nil }
 
 func newOutputView(id int, title string, o runOpts) *outputView {
 	in := newInput("stdin ▸ ", "type here to answer a prompt, enter to send")
@@ -35,7 +38,7 @@ func newOutputView(id int, title string, o runOpts) *outputView {
 func (o *outputView) focus() tea.Cmd { return o.stdin.Focus() }
 
 func (o *outputView) update(a *App, msg tea.Msg) (tea.Cmd, bool) {
-	running := a.run != nil && a.run.ID == o.runID
+	running := o.running()
 	if p, ok := msg.(tea.PasteMsg); ok && running {
 		var cmd tea.Cmd
 		o.stdin, cmd = o.stdin.Update(p)
@@ -65,23 +68,32 @@ func (o *outputView) update(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	if running {
 		switch k.String() {
 		case "ctrl+c":
-			return a.do(aCancelRun), true
+			if a.run == o.run {
+				return a.do(aCancelRun), true
+			}
+			o.run.Cancel()
+			return nil, true
+		case "ctrl+b":
+			if a.run == o.run {
+				return a.toBackground(), true
+			}
+			return nil, true
 		case "esc":
 			a.showO = false
-			return a.setStatus("command still running in the background — v to view, ctrl+c to cancel", false), true
+			return a.setStatus("command still running — v shows it again, ctrl+c cancels, ctrl+b frees the screen for other commands", false), true
 		case "ctrl+p":
 			return nil, false
 		case "enter":
 			line := o.stdin.Value()
 			o.stdin.SetValue("")
 			o.buf.Note("› " + line)
-			if err := a.run.WriteStdin(line + "\n"); err != nil {
+			if err := o.run.WriteStdin(line + "\n"); err != nil {
 				o.buf.Note("could not send input: " + err.Error())
 			}
 			o.offset = 0
 			return nil, true
 		case "ctrl+d":
-			a.run.CloseStdin()
+			o.run.CloseStdin()
 			o.buf.Note("› (EOF)")
 			return nil, true
 		}
@@ -110,7 +122,7 @@ func (o *outputView) update(a *App, msg tea.Msg) (tea.Cmd, bool) {
 }
 
 func (o *outputView) view(a *App, w, h int) string {
-	running := a.run != nil && a.run.ID == o.runID
+	running := o.running()
 	var head []string
 	status := ""
 	switch {

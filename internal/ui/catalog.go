@@ -37,7 +37,7 @@ const (
 	catApp      = "App"
 )
 
-var categoryOrder = []string{catStack, catLogs, catCache, catSetup, catComposer, catFrontend, catDB, catProject, catApp}
+var categoryOrder = []string{catStack, catLogs, catCache, catSetup, catComposer, catFrontend, catDB, catOps, catProject, catApp}
 
 var mageCatalog = []mageCommand{
 	{Cmd: "cache:flush", Category: catCache, Desc: "Flush all cache storage", Keywords: "flush clear cache purge"},
@@ -54,6 +54,9 @@ var mageCatalog = []mageCommand{
 	{Cmd: "config:show", Category: catSetup, Desc: "Show configuration values", Keywords: "config show settings"},
 	{Cmd: "module:status", Category: catSetup, Desc: "List enabled / disabled modules", Keywords: "module status modules extensions"},
 	{Cmd: "cron:run", Category: catSetup, Desc: "Run cron jobs once", Keywords: "cron run jobs schedule"},
+	{Cmd: "maintenance:status", Category: catOps, Desc: "Show whether maintenance mode is on", Keywords: "maintenance status offline"},
+	{Cmd: "maintenance:enable", Category: catOps, Desc: "Turn maintenance mode on", Keywords: "maintenance enable on offline", Confirm: true},
+	{Cmd: "maintenance:disable", Category: catOps, Desc: "Turn maintenance mode off", Keywords: "maintenance disable off online"},
 }
 
 func findMage(cmd string) (mageCommand, bool) {

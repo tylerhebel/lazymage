@@ -18,8 +18,9 @@ const (
 	tabStack    = 0
 	tabMagento  = 1
 	tabComposer = 2
-	tabLogs     = 3
-	numTabs     = 3 // tabs cycled with tab / 1–3
+	tabGit      = 3
+	tabLogs     = 4
+	numTabs     = 4 // tabs cycled with tab / 1–4
 )
 
 // stackTab is the first tab: a checklist of what a working environment
@@ -140,6 +141,7 @@ func (s *stackTab) checklist(a *App, w int) []string {
 func (s *stackTab) view(a *App, w, h int) string {
 	out := []string{sBold.Render("Environment") + sFaint.Render(" — "+a.proj.Name), ""}
 	out = append(out, s.checklist(a, w)...)
+	out = append(out, a.opsChecklist(w)...)
 	out = append(out, "", sFaint.Render(strings.Repeat("─", w)))
 	b := a.builder()
 	for i, t := range stackTasks {

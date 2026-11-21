@@ -84,6 +84,8 @@ type HistoryEntry struct {
 }
 
 type Project struct {
+	LastOpened     time.Time       `yaml:"last_opened,omitempty"`
+	Overrides      *Overrides      `yaml:"overrides,omitempty"`
 	History        []HistoryEntry  `yaml:"history"`
 	CustomCommands []CustomCommand `yaml:"custom_commands"`
 	Extra          map[string]any  `yaml:",inline"`

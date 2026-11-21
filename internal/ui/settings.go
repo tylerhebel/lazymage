@@ -43,22 +43,35 @@ func newSettings(a *App) *settingsOverlay {
 	return &settingsOverlay{in: newInput("▸ ", "")}
 }
 
+// projectTag marks a setting the current project overrides.
+func projectTag(a *App, id string) string {
+	if a.eff().Overridden[id] {
+		return sNote.Render("  [this project]")
+	}
+	return ""
+}
+
 func (s *settingsOverlay) value(a *App, id string) string {
+	return s.rawValue(a, id) + projectTag(a, id)
+}
+
+func (s *settingsOverlay) rawValue(a *App, id string) string {
 	c := a.cfg
+	e := a.eff()
 	switch id {
 	case "runtime":
 		return runtimeLabel(c.Runtime) + sFaint.Render("  ←/→")
 	case "mode":
-		return modeLabel(c.IntegrationMode) + sFaint.Render("  ←/→")
+		return modeLabel(e.IntegrationMode) + sFaint.Render("  ←/→")
 	case "shell":
-		return c.Shell
+		return e.Shell
 	case "editor":
-		if c.Editor == "" {
+		if e.Editor == "" {
 			return sFaint.Render("($EDITOR, then vi) → " + strings.Join(a.editorArgv(), " "))
 		}
-		return c.Editor
+		return e.Editor
 	case "browser":
-		return c.Browser
+		return e.Browser
 	case "tail":
 		return strconv.Itoa(c.Logs.TailLines)
 	case "follow":
@@ -67,7 +80,7 @@ func (s *settingsOverlay) value(a *App, id string) string {
 		}
 		return "off"
 	case "refresh":
-		return strconv.Itoa(c.RefreshSeconds)
+		return strconv.Itoa(e.RefreshSeconds)
 	case "updates":
 		if c.CheckUpdates() {
 			return "on" + sFaint.Render("  (U updates now)")
@@ -127,6 +140,8 @@ func (s *settingsOverlay) update(a *App, msg tea.Msg) tea.Cmd {
 	case "esc", "q", "ctrl+c":
 		a.remove(s)
 		return nil
+	case "p":
+		return s.toggleOverride(a, id)
 	case "j", "down", "tab":
 		s.cursor = min(s.cursor+1, len(settingRows)-1)
 		return nil
@@ -150,9 +165,14 @@ func (s *settingsOverlay) update(a *App, msg tea.Msg) tea.Cmd {
 		a.saveConfig()
 		return tea.Batch(a.probeCmd(), a.setStatus("runtime: "+runtimeLabel(a.cfg.Runtime), false))
 	case "mode":
-		a.cfg.IntegrationMode = cycle(config.Modes, a.cfg.IntegrationMode, dir)
+		next := cycle(config.Modes, a.eff().IntegrationMode, dir)
+		if a.eff().Overridden["mode"] {
+			a.cfg.SetOverride(a.root(), "mode", next, 0, false)
+		} else {
+			a.cfg.IntegrationMode = next
+		}
 		a.saveConfig()
-		return a.setStatus("integration mode: "+modeLabel(a.cfg.IntegrationMode), false)
+		return a.setStatus("integration mode: "+modeLabel(next)+scopeNote(a, "mode"), false)
 	case "follow":
 		a.cfg.Logs.FollowOnOpen = !a.cfg.Logs.FollowOnOpen
 		a.saveConfig()
@@ -184,8 +204,9 @@ func (s *settingsOverlay) update(a *App, msg tea.Msg) tea.Cmd {
 		return a.do(aEditConfig)
 	default:
 		s.editing = true
-		raw := map[string]string{"shell": a.cfg.Shell, "editor": a.cfg.Editor, "browser": a.cfg.Browser,
-			"tail": strconv.Itoa(a.cfg.Logs.TailLines), "refresh": strconv.Itoa(a.cfg.RefreshSeconds)}[id]
+		e := a.eff()
+		raw := map[string]string{"shell": e.Shell, "editor": e.Editor, "browser": e.Browser,
+			"tail": strconv.Itoa(a.cfg.Logs.TailLines), "refresh": strconv.Itoa(e.RefreshSeconds)}[id]
 		s.in.SetValue(raw)
 		s.in.CursorEnd()
 		return s.in.Focus()
@@ -193,8 +214,55 @@ func (s *settingsOverlay) update(a *App, msg tea.Msg) tea.Cmd {
 	return nil
 }
 
+func scopeNote(a *App, id string) string {
+	if a.eff().Overridden[id] {
+		return " (this project)"
+	}
+	return ""
+}
+
+// toggleOverride makes a setting project-specific (starting from the value in
+// force) or returns it to the global value.
+func (s *settingsOverlay) toggleOverride(a *App, id string) tea.Cmd {
+	if a.proj == nil || !contains(config.OverridableSettings, id) {
+		return a.setStatus("only integration mode, shell, editor, browser and refresh can be set per project", true)
+	}
+	e := a.eff()
+	if e.Overridden[id] {
+		a.cfg.SetOverride(a.root(), id, "", 0, true)
+		a.saveConfig()
+		return a.setStatus(id+" now follows the global setting", false)
+	}
+	v := map[string]string{"mode": e.IntegrationMode, "shell": e.Shell, "editor": e.Editor, "browser": e.Browser}[id]
+	if id == "editor" && v == "" {
+		v = strings.Join(a.editorArgv(), " ")
+	}
+	a.cfg.SetOverride(a.root(), id, v, e.RefreshSeconds, false)
+	a.saveConfig()
+	return a.setStatus(id+" is now set for "+a.proj.Name+" only — change it here as usual", false)
+}
+
 func (s *settingsOverlay) commit(a *App, id, v string) tea.Cmd {
 	c := a.cfg
+	if a.eff().Overridden[id] {
+		if v == "" && id != "editor" {
+			s.err = "a project setting can't be empty — press p to use the global value instead"
+			return nil
+		}
+		n := 0
+		if id == "refresh" {
+			var err error
+			if n, err = strconv.Atoi(v); err != nil || n <= 0 || n > 3600 {
+				s.err = "enter a positive whole number"
+				return nil
+			}
+		}
+		a.cfg.SetOverride(a.root(), id, v, n, false)
+		s.editing, s.err = false, ""
+		s.in.Blur()
+		a.saveConfig()
+		return a.setStatus("saved "+id+" for this project", false)
+	}
 	switch id {
 	case "shell":
 		if v == "" {
@@ -247,6 +315,9 @@ func (s *settingsOverlay) view(a *App, w, h int) string {
 		lines = append(lines, "", sErr.Render("! "+s.err))
 	}
 	lines = append(lines, "", sFaint.Render("Changes save immediately to "+a.cfgPath))
+	if a.proj != nil {
+		lines = append(lines, sFaint.Render("p on integration mode, shell, editor, browser or refresh: set it for "+a.proj.Name+" only (p again: back to global)"))
+	}
 	return overlayBox("Settings", strings.Join(lines, "\n"), bw)
 }
 
@@ -254,7 +325,7 @@ func (s *settingsOverlay) hints() string {
 	if s.editing {
 		return keyHint("enter", "save", "esc", "cancel")
 	}
-	return keyHint("j/k", "move", "enter", "edit / open", "←/→", "change choice", "esc", "close")
+	return keyHint("j/k", "move", "enter", "edit / open", "←/→", "change choice", "p", "this project only", "esc", "close")
 }
 
 // favoritesOverlay toggles favorite Magento commands (also used by setup step 4).

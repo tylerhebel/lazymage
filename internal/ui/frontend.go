@@ -95,7 +95,7 @@ func (a *App) doFrontend(action string) tea.Cmd {
 			return a.startRun(b.Grunt("less:"+t), runOpts{kind: kindFrontend})
 		})
 	case aFEGruntWatch:
-		return a.startRun(b.Grunt("watch"), runOpts{kind: kindFrontend})
+		return a.startBackground(b.Grunt("watch"), runOpts{kind: kindFrontend}, "grunt watch")
 	case aFEGruntFree:
 		a.push(newPrompt("Run a grunt command", argPrompt{Label: "grunt arguments (e.g. clean:luma, exec:luma, less:luma, watch)", Required: true}, func(v string) tea.Cmd {
 			words, err := config.SplitArgs(v)

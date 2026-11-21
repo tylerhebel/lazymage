@@ -85,6 +85,7 @@ type App struct {
 
 	tab   int // 0 logs, 1 magento, 2 composer
 	stack *stackTab
+	git   *gitView
 	logs  *logsModel
 	mage  *cmdTab
 	comp  *cmdTab
@@ -93,6 +94,7 @@ type App struct {
 
 	run    *runner.Run
 	runSeq int
+	bgs    []*bgTask // background tasks (grunt watch, ctrl+b)
 
 	overlays []overlay
 
@@ -157,6 +159,10 @@ func New(opts Options) *App {
 		a.screen = screenMalformed
 	}
 	a.loadFactsCache()
+	if err == nil && a.proj != nil {
+		a.cfg.TouchProject(a.proj.Root, time.Now())
+		a.saveConfig()
+	}
 	a.mage.refreshItems(a)
 	a.comp.refreshItems(a)
 	return a
@@ -177,10 +183,16 @@ func (a *App) detectProject(dir string) bool {
 	return true
 }
 
+// eff is the settings in force for the current project (its overrides over
+// the global settings).
+func (a *App) eff() config.Effective { return a.cfg.Effective(a.root()) }
+
 func (a *App) builder() plan.Builder {
 	mode := config.ModeHybrid
-	if a.cfg != nil && a.cfg.IntegrationMode != "" {
-		mode = a.cfg.IntegrationMode
+	if a.cfg != nil {
+		if m := a.eff().IntegrationMode; m != "" {
+			mode = m
+		}
 	}
 	b := plan.New(a.proj, mode, a.facts.PHPService)
 	b.DBService = plan.DBServiceFrom(a.services)
@@ -320,6 +332,8 @@ func (a *App) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		ctx = "logs"
 	case tabStack:
 		ctx = "stack"
+	case tabGit:
+		ctx = "git"
 	}
 	if act := actionForKey(key, ctx); act != "" {
 		return a.do(act)
@@ -330,6 +344,8 @@ func (a *App) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch a.tab {
 	case tabStack:
 		return a.stack.update(a, msg)
+	case tabGit:
+		return a.gitUpdate(msg)
 	case tabLogs:
 		return a.logs.update(a, msg)
 	case 1:
@@ -421,6 +437,8 @@ func (a *App) viewMain() string {
 		switch a.tab {
 		case tabStack:
 			content = a.stack.view(a, innerW, innerH)
+		case tabGit:
+			content = a.gitView(innerW, innerH)
 		case tabLogs:
 			content = a.logs.view(a, innerW, innerH)
 		case 1:
@@ -433,7 +451,7 @@ func (a *App) viewMain() string {
 }
 
 func (a *App) viewTabs() string {
-	names := []string{"1 Stack", "2 Magento", "3 Composer"}
+	names := []string{"1 Stack", "2 Magento", "3 Composer", "4 Git"}
 	if a.tab == tabLogs {
 		names = append(names, "Logs")
 	}
@@ -445,6 +463,7 @@ func (a *App) viewTabs() string {
 			parts = append(parts, sTab.Render(n))
 		}
 	}
+	parts = append(parts, a.bgChips()...)
 	if a.out != nil {
 		label := "Output"
 		if a.run != nil {
@@ -473,7 +492,7 @@ func (a *App) viewNoProject(w, h int) string {
 	for _, m := range project.Markers {
 		b.WriteString("  • " + m + "\n")
 	}
-	b.WriteString("\n" + keyHint("cd", "into a project and relaunch", "r", "retry detection", "x", "palette", "S", "settings", "q", "quit"))
+	b.WriteString("\n" + keyHint("P", "switch to a known project", "cd", "into a project and relaunch", "r", "retry detection", "x", "palette", "S", "settings", "q", "quit"))
 	return b.String()
 }
 
@@ -530,7 +549,7 @@ func (a *App) viewHeader() string {
 	if a.facts.AdminPath != "" {
 		l2 = append(l2, "admin /"+a.facts.AdminPath)
 	}
-	l2 = append(l2, "lazymage "+a.opts.Version, "integration "+a.cfg.IntegrationMode)
+	l2 = append(l2, "lazymage "+a.opts.Version, "integration "+a.eff().IntegrationMode)
 	if a.proj != nil {
 		l2 = append(l2, a.proj.Root)
 	}
@@ -596,17 +615,19 @@ func (a *App) contextHints() string {
 		return keyHint("esc", "close")
 	}
 	if a.proj == nil {
-		return keyHint("r", "retry", "x", "palette", "S", "settings", "?", "help", "q", "quit")
+		return keyHint("P", "projects", "r", "retry", "x", "palette", "S", "settings", "?", "help", "q", "quit")
 	}
 	if a.showO && a.out != nil {
 		if a.run != nil {
-			return keyHint("type", "input for prompts", "enter", "send line", "ctrl+d", "send EOF", "ctrl+c", "cancel", "pgup/pgdn", "scroll", "esc", "hide")
+			return keyHint("type", "input for prompts", "enter", "send line", "ctrl+c", "cancel", "ctrl+b", "background", "pgup/pgdn", "scroll", "esc", "hide")
 		}
 		return keyHint("esc", "dismiss", "j/k", "scroll", "x", "palette", "?", "help")
 	}
 	switch a.tab {
 	case tabStack:
 		return a.stack.hints()
+	case tabGit:
+		return a.gitHints()
 	case tabLogs:
 		return a.logs.hints()
 	default:
