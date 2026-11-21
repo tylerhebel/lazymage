@@ -23,6 +23,7 @@ for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64; do
 done
 (cd dist && shasum -a 256 lazymage-* > checksums.txt)
 
-git tag -a "$tag" -m "lazymage $tag"
-git push origin "$tag"
-gh release create "$tag" dist/* --title "lazymage $tag" --generate-notes
+# gh creates the tag on GitHub at this commit, so no git push credentials are needed.
+gh release create "$tag" dist/* --target "$(git rev-parse HEAD)" \
+  --title "lazymage $tag" --generate-notes
+git fetch -q --tags origin
