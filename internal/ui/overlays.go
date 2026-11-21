@@ -165,8 +165,9 @@ func contains(xs []string, s string) bool {
 // --- service picker (log source) ----------------------------------------------------------
 
 type servicePicker struct {
-	in     textinput.Model
-	cursor int
+	in      textinput.Model
+	cursor  int
+	restart bool // pick a service to restart instead of a log source
 }
 
 func newServicePicker(a *App) *servicePicker {
@@ -177,6 +178,9 @@ func newServicePicker(a *App) *servicePicker {
 
 func (s *servicePicker) options(a *App) []string {
 	opts := []string{""}
+	if s.restart {
+		opts = nil
+	}
 	q := strings.ToLower(s.in.Value())
 	var scored []string
 	for _, svc := range a.services {
@@ -186,7 +190,7 @@ func (s *servicePicker) options(a *App) []string {
 	}
 	if q != "" {
 		sort.SliceStable(scored, func(i, j int) bool { return fuzzyScore(q, scored[i]) > fuzzyScore(q, scored[j]) })
-		if fuzzyScore(q, "all services") == 0 {
+		if !s.restart && fuzzyScore(q, "all services") == 0 {
 			opts = nil
 		}
 	}
@@ -208,6 +212,9 @@ func (s *servicePicker) update(a *App, msg tea.Msg) tea.Cmd {
 			return nil
 		case "enter":
 			a.remove(s)
+			if s.cursor < len(opts) && s.restart {
+				return a.startRun(a.builder().RestartService(opts[s.cursor]), runOpts{kind: "lifecycle", lifecycle: true})
+			}
 			if s.cursor < len(opts) {
 				return a.logs.open(a, opts[s.cursor])
 			}
@@ -246,7 +253,11 @@ func (s *servicePicker) view(a *App, w, h int) string {
 			lines = append(lines, "  "+label)
 		}
 	}
-	return overlayBox("Logs — pick a source", strings.Join(lines, "\n"), bw)
+	title := "Logs — pick a source"
+	if s.restart {
+		title = "Restart a service"
+	}
+	return overlayBox(title, strings.Join(lines, "\n"), bw)
 }
 
 func (s *servicePicker) hints() string {

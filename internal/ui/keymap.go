@@ -9,11 +9,12 @@ import (
 
 // Action IDs shared by the keymap, the palette, and the help overlay.
 const (
-	aStackStart   = "stack.start"
-	aStackStop    = "stack.stop"
-	aStackRestart = "stack.restart"
-	aEngineStart  = "engine.start"
-	aRefresh      = "refresh"
+	aStackStart      = "stack.start"
+	aStackStop       = "stack.stop"
+	aStackRestart    = "stack.restart"
+	aStackRestartSvc = "stack.restartservice"
+	aEngineStart     = "engine.start"
+	aRefresh         = "refresh"
 
 	aLogsAll    = "logs.all"
 	aLogsPick   = "logs.pick"
@@ -84,7 +85,7 @@ var Keymap = []Binding{
 	{[]string{"j", "k", "↑", "↓"}, "", "Move within the focused view", "Navigation", "global"},
 	{[]string{"tab"}, aNextTab, "Next tab", "Navigation", "global"},
 	{[]string{"shift+tab"}, aPrevTab, "Previous tab", "Navigation", "global"},
-	{[]string{"1"}, aTab1, "Logs tab", "Navigation", "global"},
+	{[]string{"1"}, aTab1, "Stack tab (start / restart the environment)", "Navigation", "global"},
 	{[]string{"2"}, aTab2, "Magento tab", "Navigation", "global"},
 	{[]string{"3"}, aTab3, "Composer tab", "Navigation", "global"},
 	{[]string{"enter"}, "", "Run / open the selected item", "Navigation", "global"},
@@ -102,7 +103,6 @@ var Keymap = []Binding{
 	{[]string{"ctrl+c"}, aCancelRun, "Cancel the running command (not the app)", "Stack", "global"},
 	{[]string{"v"}, aViewOutput, "Show the last command's output", "Stack", "global"},
 
-	{[]string{"l"}, aLogsPick, "Logs — pick a service, or all services", "Logs", "global"},
 	{[]string{"a"}, aLogsAll, "Logs — all services", "Logs", "logs"},
 	{[]string{"f"}, aLogsFollow, "Toggle log follow", "Logs", "logs"},
 	{[]string{"space"}, aLogsPause, "Pause / resume the stream", "Logs", "logs"},

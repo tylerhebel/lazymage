@@ -125,7 +125,7 @@ next patch version (v0.1.0 → v0.1.1 → …) through
 `.github/workflows/release.yml`. It builds static
 `lazymage-{darwin,linux}-{arm64,amd64}` binaries stamped with the version,
 plus `checksums.txt`. Pushes that only change Markdown or `docs/` don't
-release, and neither do commits with `[skip release]` in the message. For a
+release, and neither do commits with `[skip release]` in the subject line. For a
 minor or major bump, run `scripts/release.sh minor` (or `major`), or use
 *Run workflow* on the release action in GitHub.
 
@@ -135,10 +135,11 @@ minor or major bump, run `scripts/release.sh minor` (or `major`), or use
 |---|---|
 | Setup | Six-step first-run wizard: project, runtime (with evidence and **Start it now**), integration mode, favorites and custom commands, preferences, review. Nothing is written until you confirm. A saved runtime that is no longer installed reopens only that step. |
 | Header | Project, domain, Magento version, deploy mode, runtime and context, and health as **all up / some down / engine stopped / unknown** (symbol + text, not color alone). |
-| Logs (`1`, `l`) | Pick a service or all services, follow (`f`), pause (`space`), search (`/`, `n`/`N`), filter / clear / save from the palette. If a followed container restarts, the stream resumes and the view notes it. |
+| Stack (`1`) | The first tab. A checklist of what a working environment needs: engine running, containers up (naming any that aren't), Magento version and mode, storefront URL. Below it are the tasks: start, restart, restart one service, stop (confirms), start the container engine, re-check. |
+| Logs (palette) | No tab of its own. "Logs: all services" or "Logs: pick a service…" in the palette opens a temporary Logs tab: follow (`f`), pause (`space`), search (`/`, `n`/`N`), filter / clear / save. If a followed container restarts, the stream resumes.
 | Magento (`2`) | Favorites first (`space` toggles), presets, free-form `bin/magento …` with per-project history (`↑`/`↓`). The exact command is shown before it runs; output streams; the exit code always shows; stdin is open so prompts work. |
 | Composer (`3`) | install, update, require… (asks for the package), show --outdated, dump-autoload, free-form. Elapsed time is shown, and `ctrl+c` cancels the child process, not the app. |
-| Stack | Start / stop (confirms) / restart through `bin/start`, `bin/stop`, `bin/restart`, with live per-service progress while they run. |
+| Lifecycle | Start / stop (confirms) / restart through `bin/start`, `bin/stop`, `bin/restart`, with live per-service progress while they run. |
 | Project | `s` shell into PHP, `o` / `O` storefront / admin, `y` copy URL, open `.env` or the config file in your editor. |
 | Frontend | `b` builds a theme (`grunt clean:<theme> && exec:<theme> && less:<theme>`, theme picked from `local-themes.js`, remembering the last one). From the palette: **Generate local-themes.js from the database…** reads every physical theme plus the theme and locale for each store (store → website → default), preselects the themes your stores use and the entries already in the file, previews the result, then writes `src/dev/tools/grunt/configs/local-themes.js`, keeping the old file as `.bak`. Also: open `local-themes.js` in your editor, `npm install`, compile LESS, `grunt watch`, free-form grunt, and `bin/setup-grunt`. Node tools run in the PHP container through `bin/clinotty`. |
 | Database | `m` opens a MySQL client (`bin/mysql`). From the palette: **Dump database…** writes `backups/<project>-<time>.sql.gz` (or `.sql`), showing bytes written; **Import database dump…** picks from `backups/` and the project root, confirms (optionally backing up first), and shows a progress bar; **Replace base URLs…** previews every `core_config_data` value containing a domain, replaces it after you confirm, then runs `cache:flush`. Credentials are read inside the db container from `env/db.env`, so no password reaches lazymage, the screen, or history. |

@@ -222,3 +222,11 @@ func (b Builder) GruntBuild(theme string) []string {
 	script := `npx grunt clean:"$1" && npx grunt exec:"$1" && npx grunt less:"$1"`
 	return b.Node("sh", "-c", script, "lazymage", theme)
 }
+
+// RestartService restarts one service (bin/restart takes service names too).
+func (b Builder) RestartService(svc string) []string {
+	if b.Mode != config.ModeDockerOnly && b.has("restart") {
+		return []string{"bin/restart", svc}
+	}
+	return b.Compose("restart", svc)
+}

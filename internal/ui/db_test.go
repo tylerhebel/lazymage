@@ -9,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"lazymage/internal/docker"
 	"lazymage/internal/runner"
 )
 
@@ -254,5 +255,40 @@ func TestGenerateLocalThemes(t *testing.T) {
 	a.do(aFEGruntBuild)
 	if v := top(a).(*promptOverlay).in.Value(); v != "mine" {
 		t.Fatalf("second build should default to the last theme, got %q", v)
+	}
+}
+
+func TestStackTabReplacesLogs(t *testing.T) {
+	a, _ := newTestApp(t, true)
+	a.services = []string{"app", "db", "phpfpm"}
+	a.containers = []docker.Container{{Service: "app", State: "running"}, {Service: "phpfpm", State: "running"}}
+	a.health = docker.Summary{Health: docker.HealthSomeDown, Up: 2, Total: 3}
+	a.facts.Domain = "shop.test"
+	out := stripANSI(a.View().Content)
+	if os.Getenv("SHOW") != "" {
+		t.Log("\n" + out)
+	}
+	for _, want := range []string{"1 Stack", "Environment", "Engine", "2/3 up — not up: db", "Start environment", "Restart one service…", "https://shop.test/"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("stack tab missing %q", want)
+		}
+	}
+	if strings.Contains(out, "1 Logs") {
+		t.Error("the Logs tab should be gone")
+	}
+	a.stack.cursor = 2 // Restart one service…
+	a.Update(key("enter"))
+	sp, ok := top(a).(*servicePicker)
+	if !ok || !sp.restart || len(sp.options(a)) != 3 {
+		t.Fatal("restart one service should open a service picker without 'all services'")
+	}
+	a.Update(key("esc"))
+	a.do(aLogsAll)
+	if a.tab != tabLogs || !strings.Contains(stripANSI(a.View().Content), "Logs") {
+		t.Fatal("logs still open from the palette, as a temporary tab")
+	}
+	a.do(aNextTab)
+	if a.tab != tabStack {
+		t.Fatalf("tab from logs goes back to the cycle, got %d", a.tab)
 	}
 }

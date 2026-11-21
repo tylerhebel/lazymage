@@ -47,9 +47,9 @@ func (a *App) do(action string) tea.Cmd {
 	case aUpdate:
 		return a.startUpdate()
 	case aNextTab:
-		a.tab, a.showO = (a.tab+1)%3, false
+		a.tab, a.showO = (min(a.tab, numTabs-1)+1)%numTabs, false
 	case aPrevTab:
-		a.tab, a.showO = (a.tab+2)%3, false
+		a.tab, a.showO = (min(a.tab, numTabs)+numTabs-1)%numTabs, false
 	case aTab1, aTab2, aTab3:
 		a.tab, a.showO = int(action[len(action)-1]-'1'), false
 	case aRefresh:
@@ -71,19 +71,23 @@ func (a *App) do(action string) tea.Cmd {
 		return a.startRun(a.builder().Lifecycle("start"), runOpts{kind: "lifecycle", lifecycle: true})
 	case aStackRestart:
 		return a.startRun(a.builder().Lifecycle("restart"), runOpts{kind: "lifecycle", lifecycle: true})
+	case aStackRestartSvc:
+		sp := newServicePicker(a)
+		sp.restart = true
+		a.push(sp)
 	case aStackStop:
 		argv := a.builder().Lifecycle("stop")
 		a.push(newConfirm("Stop the whole stack?", "This stops every container in "+a.proj.Name+".\n\n$ "+config.JoinArgs(argv), "Stop stack",
 			func() tea.Cmd { return a.startRun(argv, runOpts{kind: "lifecycle", lifecycle: true}) }))
 
 	case aLogsAll:
-		a.tab, a.showO = 0, false
+		a.tab, a.showO = tabLogs, false
 		return a.logs.open(a, "")
 	case aLogsPick:
-		a.tab, a.showO = 0, false
+		a.tab, a.showO = tabLogs, false
 		a.push(newServicePicker(a))
 	case aLogsPause, aLogsFollow, aLogsSearch, aLogsNext, aLogsPrev, aLogsFilter, aLogsClear, aLogsSave:
-		a.tab, a.showO = 0, false
+		a.tab, a.showO = tabLogs, false
 		return a.logs.action(a, action)
 
 	case aMageFree:
@@ -209,7 +213,7 @@ func (a *App) disabledReason(action string) string {
 			return "no database service (db, mysql or mariadb) in the compose files"
 		}
 		return ""
-	case aStackStart, aStackStop, aStackRestart, aMageFree, aComposerFree:
+	case aStackStart, aStackStop, aStackRestart, aStackRestartSvc, aMageFree, aComposerFree:
 		if a.run != nil {
 			return "a command is already running (ctrl+c cancels it)"
 		}

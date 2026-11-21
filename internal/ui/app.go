@@ -84,6 +84,7 @@ type App struct {
 	wiz    *wizard
 
 	tab   int // 0 logs, 1 magento, 2 composer
+	stack *stackTab
 	logs  *logsModel
 	mage  *cmdTab
 	comp  *cmdTab
@@ -121,6 +122,7 @@ func New(opts Options) *App {
 	a := &App{opts: opts, startDir: opts.StartDir, cfgPath: config.Path()}
 	a.log = openDebugLog(opts.Debug)
 	a.detectProject(opts.StartDir)
+	a.stack = &stackTab{}
 	a.logs = newLogsModel()
 	a.mage = newCmdTab(config.KindMagento)
 	a.comp = newCmdTab(config.KindComposer)
@@ -293,7 +295,7 @@ func (a *App) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	// A focused text input in a tab takes printable keys first.
 	if !a.showO {
 		switch a.tab {
-		case 0:
+		case tabLogs:
 			if cmd, used := a.logs.updateInput(a, msg); used {
 				return cmd
 			}
@@ -313,8 +315,11 @@ func (a *App) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		return a.runCustom(sc)
 	}
 	ctx := "commands"
-	if a.tab == 0 {
+	switch a.tab {
+	case tabLogs:
 		ctx = "logs"
+	case tabStack:
+		ctx = "stack"
 	}
 	if act := actionForKey(key, ctx); act != "" {
 		return a.do(act)
@@ -323,7 +328,9 @@ func (a *App) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 	switch a.tab {
-	case 0:
+	case tabStack:
+		return a.stack.update(a, msg)
+	case tabLogs:
 		return a.logs.update(a, msg)
 	case 1:
 		cmd, _ := a.mage.update(a, msg, false)
@@ -412,7 +419,9 @@ func (a *App) viewMain() string {
 		content = a.viewEngineStopped(innerW, innerH)
 	default:
 		switch a.tab {
-		case 0:
+		case tabStack:
+			content = a.stack.view(a, innerW, innerH)
+		case tabLogs:
 			content = a.logs.view(a, innerW, innerH)
 		case 1:
 			content = a.mage.view(a, innerW, innerH)
@@ -424,7 +433,10 @@ func (a *App) viewMain() string {
 }
 
 func (a *App) viewTabs() string {
-	names := []string{"1 Logs", "2 Magento", "3 Composer"}
+	names := []string{"1 Stack", "2 Magento", "3 Composer"}
+	if a.tab == tabLogs {
+		names = append(names, "Logs")
+	}
 	var parts []string
 	for i, n := range names {
 		if i == a.tab && !a.showO {
@@ -593,7 +605,9 @@ func (a *App) contextHints() string {
 		return keyHint("esc", "dismiss", "j/k", "scroll", "x", "palette", "?", "help")
 	}
 	switch a.tab {
-	case 0:
+	case tabStack:
+		return a.stack.hints()
+	case tabLogs:
 		return a.logs.hints()
 	default:
 		t := a.mage

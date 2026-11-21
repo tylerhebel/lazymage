@@ -55,6 +55,7 @@ func buildEntries(a *App) ([]paletteEntry, map[string]config.Scoped) {
 	add(aStackStart, "Start stack", catStack, cmdOr(func() string { return j(b.Lifecycle("start")) }), "start up boot launch stack containers")
 	add(aStackStop, "Stop stack (confirm)", catStack, cmdOr(func() string { return j(b.Lifecycle("stop")) }), "stop down halt shutdown stack containers")
 	add(aStackRestart, "Restart stack", catStack, cmdOr(func() string { return j(b.Lifecycle("restart")) }), "restart reboot reload stack containers")
+	add(aStackRestartSvc, "Restart one service…", catStack, cmdOr(func() string { return j(b.RestartService("<service>")) }), "restart service container one single nginx phpfpm db redis")
 	add(aEngineStart, "Start engine", catStack, engineStartDesc(a.cfg.Runtime), "engine docker orbstack desktop start daemon")
 	add(aRefresh, "Refresh status and project facts", catStack, "docker info · compose ps · bin/magento --version", "refresh reload status health facts")
 
