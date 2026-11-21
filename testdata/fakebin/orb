@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Fake OrbStack CLI for lazymage's demo harness: flips the fake docker engine state.
+STATE="${FAKE_DOCKER_STATE:-/tmp/fake-docker-state}"
+mkdir -p "$STATE"
+case "$1" in
+  start)
+    sleep 1.5
+    echo running > "$STATE/engine"
+    ;;
+  stop)
+    echo stopped > "$STATE/engine"
+    ;;
+  version)
+    echo "Version: 1.9.0 (fake)"
+    ;;
+  status)
+    cat "$STATE/engine" 2>/dev/null || echo running
+    ;;
+  *)
+    echo "fake orb: unsupported: $*" >&2
+    exit 1
+    ;;
+esac

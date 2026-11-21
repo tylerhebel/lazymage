@@ -1,0 +1,56 @@
+# Phase 0 — ground truth
+
+Status: **verified against the docker-magento source and a fake engine; real
+OrbStack capture still pending.**
+
+The build machine (WSL2 Linux) has no Docker engine and no sudo, so lazymage was
+tested with:
+
+1. The real `markshust/docker-magento` repository (compose files v53.2.0 and its
+   `bin/*` scripts), copied into a demo project by `scripts/demo-project.sh`.
+2. `testdata/fakebin/docker` and `testdata/fakebin/orb`, which emit the real
+   output formats. The real `bin/start`, `bin/stop`, `bin/magento`,
+   `bin/clinotty`, `bin/docker-compose` run against them unchanged, as
+   subprocesses.
+
+## Findings from the docker-magento source
+
+| Topic | What docker-magento actually does | What lazymage does |
+|---|---|---|
+| Compose files | `bin/docker-compose` uses `compose.yaml` + `compose.healthcheck.yaml` + `compose.dev.yaml` (+ `compose.versions.yaml`, `compose.override.yaml` if present) | Direct `docker compose` calls pass the same `-f` set |
+| Domain | No root `.env`. `bin/setup-domain` sets `web/*/base_url` in the database and adds `/etc/hosts` | `.env` → `env.php` → `bin/magento config:show web/secure/base_url` (cached) |
+| Env files | `env/db.env`, `env/magento.env`, `env/phpfpm.env`, … (contain passwords) | Never read for display; the capture script records keys only |
+| PHP service | `phpfpm` (plus `phpfpm-xdebug`) | `phpfpm`, picked from `config --services` |
+| `bin/magento` | `bin/cli bin/magento` → `docker compose exec phpfpm` (TTY) | `bin/clinotty bin/magento` (exec `-T`) for piped output |
+| `bin/start` | `up -d`, then backgrounds `cache-clean --watch` that holds stdout open | Run ends when the script exits (WaitDelay) |
+| `bin/status` | `bin/docker-compose ps` | bin-only mode parses this text |
+| `bin/log` (singular) | Tails Magento's `var/log` files, not container logs | Not used; container logs use `docker compose logs` |
+| `bin/start` memory check | Needs `docker info` "Total Memory" ≥ 6 GB and `bc` on the host | Nothing to do; noted for OrbStack (it reports its own limit) |
+| Search engine | OpenSearch (`opensearch` service) by default | Detected from service names / compose image |
+
+## Capture on the Mac
+
+On the Mac, with OrbStack running and the project's stack started:
+
+```bash
+cd ~/code/my-magento-project
+/path/to/lazymage/scripts/capture-ground-truth.sh
+orb stop && /path/to/lazymage/scripts/capture-ground-truth.sh ./lazymage-ground-truth-stopped; orb start
+```
+
+`.env` files are captured as keys only. From `env.php`, only the admin
+`frontName` line is kept. Copy the output to `docs/ground-truth/raw/`
+(gitignored).
+
+## Checklist for the real-machine pass
+
+- [ ] Project runs under OrbStack with no workarounds, or list each tweak here.
+- [ ] `docker info --format '{{json .}}'` OperatingSystem / Name values under
+      OrbStack (lazymage matches any "orbstack" in OS, name, context, or socket path).
+- [ ] `docker compose ps --format json` form: NDJSON (v2.21+) vs. array (both parsed).
+- [ ] `bin/clinotty bin/magento --version` prints `Magento CLI <version>`.
+- [ ] Engine-stopped stderr from `docker compose ps` contains "Cannot connect to
+      the Docker daemon" (used to flip the header to **engine stopped**).
+- [ ] `docker compose logs -f` behaviour when a followed container restarts
+      (lazymage reconnects either way).
+- [ ] Time to first screen < 500 ms with a warm facts cache.

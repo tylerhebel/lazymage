@@ -1,0 +1,6 @@
+/lazymage
+/dist/
+*.test
+*.out
+# Raw ground-truth captures can contain hostnames and paths; review before committing.
+/docs/ground-truth/raw/

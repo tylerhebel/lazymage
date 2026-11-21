@@ -1,0 +1,379 @@
+#!/usr/bin/env python3
+"""A fake `docker` CLI for exercising lazymage without a container engine.
+
+It speaks just enough of docker / docker compose for lazymage and docker-magento's
+bin/* scripts: info, context, compose config/ps/up/stop/restart/logs/exec. Output
+formats follow the real CLI (compose ps --format json is NDJSON, as in v2.21+).
+
+State lives in $FAKE_DOCKER_STATE (default: /tmp/fake-docker-state):
+  engine          "running" or "stopped"
+  services.json   {service: {"state": ..., "started": epoch}}
+  mode            Magento deploy mode
+  restart-<svc>   touch to make a following `logs -f` stream end (simulated restart)
+"""
+import json
+import os
+import re
+import sys
+import time
+
+STATE = os.environ.get("FAKE_DOCKER_STATE", "/tmp/fake-docker-state")
+os.makedirs(STATE, exist_ok=True)
+HEALTHCHECKED = {"app", "db", "redis", "opensearch", "rabbitmq"}
+
+
+def p(path):
+    return os.path.join(STATE, path)
+
+
+def read(path, default=""):
+    try:
+        with open(p(path)) as f:
+            return f.read().strip()
+    except OSError:
+        return default
+
+
+def write(path, s):
+    with open(p(path), "w") as f:
+        f.write(s)
+
+
+def engine_running():
+    return read("engine", "running") == "running"
+
+
+def die_engine():
+    sys.stderr.write("Cannot connect to the Docker daemon at unix:///Users/dev/.orbstack/run/docker.sock. Is the docker daemon running?\n")
+    sys.exit(1)
+
+
+def services_state():
+    try:
+        return json.loads(read("services.json", "{}"))
+    except ValueError:
+        return {}
+
+
+def save_services(s):
+    write("services.json", json.dumps(s))
+
+
+def compose_services(files):
+    names = []
+    for f in files:
+        try:
+            text = open(f).read()
+        except OSError:
+            continue
+        inside = False
+        for line in text.splitlines():
+            if line.startswith("services:"):
+                inside = True
+                continue
+            if inside and line and line[0] not in " #":
+                inside = False
+            m = re.match(r"^  ([A-Za-z0-9][A-Za-z0-9_.\-]*):\s*$", line)
+            if inside and m and m.group(1) not in names:
+                names.append(m.group(1))
+    return names
+
+
+def out(s="", end="\n", err=False, delay=0):
+    stream = sys.stderr if err else sys.stdout
+    stream.write(s + end)
+    stream.flush()
+    if delay:
+        time.sleep(delay)
+
+
+def main(argv):
+    if not argv:
+        out("Usage: docker [OPTIONS] COMMAND")
+        return 0
+    cmd, rest = argv[0], argv[1:]
+    if cmd == "version":
+        out("27.3.1")
+        return 0
+    if cmd == "context":
+        sub = rest[0] if rest else ""
+        if sub == "show":
+            out("orbstack")
+        elif sub == "inspect":
+            out("unix:///Users/dev/.orbstack/run/docker.sock")
+        elif sub == "ls":
+            out("default\norbstack")
+        return 0
+    if cmd == "info":
+        if not engine_running():
+            die_engine()
+        if "--format" in rest:
+            out(json.dumps({"OperatingSystem": "OrbStack", "Name": "orbstack", "ServerVersion": "27.3.1", "MemTotal": 16717438976}))
+        else:
+            out("Client:\n Version:    27.3.1\n Context:    orbstack\n\nServer:\n Server Version: 27.3.1\n Operating System: OrbStack\n Total Memory: 15.57GiB\n Name: orbstack")
+        return 0
+    if cmd == "ps":
+        return 0
+    if cmd == "compose":
+        return compose(rest)
+    out("fake docker: unsupported command: " + " ".join(argv), err=True)
+    return 1
+
+
+def compose(args):
+    files = []
+    while args and args[0] == "-f":
+        files.append(args[1])
+        args = args[2:]
+    if not files:
+        files = [f for f in ("compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml") if os.path.exists(f)][:1]
+    if args and args[0] == "version":
+        out("Docker Compose version v2.29.7")
+        return 0
+    svcs = compose_services(files)
+    proj = os.path.basename(os.getcwd()).lower()
+    sub, rest = (args[0], args[1:]) if args else ("", [])
+    if sub == "config":
+        for s in svcs:
+            out(s)
+        return 0
+    if not engine_running():
+        die_engine()
+    st = services_state()
+    now = time.time()
+
+    def health(s):
+        info = st.get(s, {})
+        if info.get("state") != "running" or s not in HEALTHCHECKED:
+            return ""
+        return "starting" if now - info.get("started", 0) < 4 else "healthy"
+
+    if sub == "ps":
+        rows = []
+        for s in svcs:
+            info = st.get(s)
+            if not info:
+                continue
+            state = info["state"]
+            h = health(s)
+            status = "Up 2 minutes" if state == "running" else "Exited (0) 1 minute ago"
+            if h:
+                status += " (health: starting)" if h == "starting" else " (healthy)"
+            image = {"phpfpm": "markoshust/magento-php:8.4-fpm-3", "app": "markoshust/magento-nginx:1.28-0"}.get(s, s + ":latest")
+            rows.append({"Name": f"{proj}-{s}-1", "Service": s, "State": state, "Health": h, "Status": status, "Image": image})
+        if "json" in rest:
+            for r in rows:
+                out(json.dumps(r))
+        else:
+            out(f"{'NAME':<28}{'IMAGE':<36}{'COMMAND':<12}{'SERVICE':<16}{'CREATED':<16}{'STATUS':<34}PORTS")
+            entry = '"entry…"'
+            for r in rows:
+                out(f"{r['Name']:<28}{r['Image']:<36}{entry:<12}{r['Service']:<16}{'2 minutes ago':<16}{r['Status']:<34}")
+        return 0
+    if sub == "up":
+        for s in svcs:
+            out(f" Container {proj}-{s}-1  Creating", err=True, delay=0.05)
+        for s in svcs:
+            st[s] = {"state": "running", "started": time.time()}
+            save_services(st)
+            out(f" Container {proj}-{s}-1  Started", err=True, delay=0.4)
+        return 0
+    if sub == "stop":
+        targets = [a for a in rest if not a.startswith("-")] or svcs
+        for s in targets:
+            if s in st:
+                st[s]["state"] = "exited"
+                save_services(st)
+            out(f" Container {proj}-{s}-1  Stopped", err=True, delay=0.2)
+        return 0
+    if sub == "restart":
+        for s in svcs:
+            st[s] = {"state": "running", "started": time.time()}
+            save_services(st)
+            out(f" Container {proj}-{s}-1  Started", err=True, delay=0.2)
+        return 0
+    if sub == "logs":
+        return logs(rest, svcs, st, proj)
+    if sub == "exec":
+        return exec_(rest, st)
+    out("fake docker compose: unsupported: " + " ".join(args), err=True)
+    return 1
+
+
+def logs(rest, svcs, st, proj):
+    follow = "-f" in rest or "--follow" in rest
+    tail = 20
+    if "--tail" in rest:
+        t = rest[rest.index("--tail") + 1]
+        tail = 1000 if t == "all" else int(t)
+    skip = {"--tail", "--since"}
+    targets, i = [], 0
+    while i < len(rest):
+        if rest[i] in skip:
+            i += 2
+            continue
+        if not rest[i].startswith("-"):
+            targets.append(rest[i])
+        i += 1
+    targets = targets or [s for s in svcs if st.get(s, {}).get("state") == "running"]
+    if not targets:
+        return 0
+    width = max(len(s) for s in targets) + 4
+    since = "--since" in rest
+    n = 0 if since else min(tail, 5)
+    for i in range(n):
+        for s in targets:
+            out(f"{(s + '-1'):<{width}}| {time.strftime('%H:%M:%S')} startup line {i} from {s}")
+    if not follow:
+        return 0
+    k = 0
+    while True:
+        time.sleep(0.7)
+        if not engine_running():
+            return 0
+        for s in targets:
+            if os.path.exists(p("restart-" + s)):
+                os.remove(p("restart-" + s))
+                return 0  # the followed container restarted: compose ends the stream
+        s = targets[k % len(targets)]
+        level = "ERROR" if k % 7 == 3 else "INFO"
+        out(f"{(s + '-1'):<{width}}| {time.strftime('%H:%M:%S')} {level} request {k} handled by {s}")
+        k += 1
+
+
+def exec_(rest, st):
+    while rest and rest[0].startswith("-"):
+        if rest[0] in ("-u", "--user", "-w", "--workdir", "-e", "--env"):
+            rest = rest[2:]
+        else:
+            rest = rest[1:]
+    svc, cmd = rest[0], rest[1:]
+    if st.get(svc, {}).get("state") != "running":
+        out(f'service "{svc}" is not running', err=True)
+        return 1
+    if not cmd:
+        return 0
+    if cmd[0] == "bin/magento":
+        return magento(cmd[1:])
+    if cmd[0] == "composer":
+        return composer(cmd[1:])
+    if cmd[0] == "sh" and len(cmd) > 2 and cmd[1] == "-c":
+        out("[fake container shell — this is your host shell; type exit to return to lazymage]")
+        os.execvp("bash", ["bash", "--norc", "-i"])
+    if cmd[0] == "bash":
+        out("[fake container bash — type exit to return]")
+        os.execvp("bash", ["bash", "--norc", "-i"])
+    if cmd[0] == "test":
+        return 1
+    if cmd[0] in ("ls", "touch", "kill", "mkdir"):
+        return 0
+    if cmd[0] == "ps":
+        return 0
+    if cmd[0].endswith("cache-clean.js"):
+        time.sleep(3600)
+        return 0
+    out(" ".join(cmd))
+    return 0
+
+
+def magento(args):
+    a = args[0] if args else "list"
+    mode = read("mode", "developer")
+    if a == "--version":
+        out("Magento CLI 2.4.7-p3")
+    elif a == "deploy:mode:show":
+        out(f"Current application mode: {mode}. (Note: Environment variables may override this value.)")
+    elif a == "deploy:mode:set":
+        m = args[1] if len(args) > 1 else ""
+        if m not in ("developer", "production", "default"):
+            out(f"Cannot switch into given mode \"{m}\"", err=True)
+            return 1
+        out("Enabling maintenance mode", delay=0.3)
+        write("mode", m)
+        out(f"Enabled {m} mode.")
+    elif a == "config:show":
+        if len(args) > 1 and args[1] == "web/secure/base_url":
+            out("https://magento.test/")
+        else:
+            out("web/secure/base_url - https://magento.test/\nweb/unsecure/base_url - https://magento.test/\ngeneral/locale/code - en_US")
+    elif a == "cache:flush":
+        out("Flushed cache types:", delay=0.2)
+        for t in ["config", "layout", "block_html", "collections", "reflection", "db_ddl", "compiled_config", "eav", "customer_notification", "config_integration", "config_integration_api", "full_page", "config_webservice", "translate"]:
+            out(t)
+    elif a == "cache:clean":
+        out("Cleaned cache types:\nconfig\nlayout\nfull_page")
+    elif a == "cache:status":
+        out("Current status:\n                        config: 1\n                        layout: 1\n                     full_page: 1")
+    elif a == "indexer:reindex":
+        for ix in ["Design Config Grid", "Customer Grid", "Category Products", "Product Categories", "Catalog Rule Product", "Product Price", "Catalog Search"]:
+            out(f"{ix} index has been rebuilt successfully in 00:00:0{len(ix) % 9}", delay=0.4)
+    elif a == "indexer:status":
+        out("+----------------------+------------------+-----------+\n| Title                | Status           | Update On |\n+----------------------+------------------+-----------+\n| Catalog Search       | Ready            | Save      |\n+----------------------+------------------+-----------+")
+    elif a == "setup:upgrade":
+        for step in ["Cache cleared successfully", "File system cleanup:", "Updating modules:", "Schema creation/updates:", "Data install/update:", "Nothing to import."]:
+            out(step, delay=0.3)
+        out("Please re-run Magento compile command. Use the command \"setup:di:compile\"")
+    elif a == "setup:di:compile":
+        out("Compilation was started.")
+        for i in range(0, 101, 20):
+            sys.stdout.write(f"\r{i // 10}/10 [{'=' * (i // 10)}{' ' * (10 - i // 10)}] {i}%")
+            sys.stdout.flush()
+            time.sleep(0.3)
+        out("\nGenerated code and dependency injection configuration successfully.")
+    elif a == "setup:static-content:deploy":
+        out("Deploy using quick strategy", delay=0.3)
+        out("frontend/Magento/luma/en_US         2245/2245           ============================ 100%   1 sec")
+        out("Execution time: 4.2")
+    elif a == "module:status":
+        out("List of enabled modules:\nMagento_Store\nMagento_Directory\nMagento_Theme\n\nList of disabled modules:\nNone")
+    elif a == "cron:run":
+        out("Ran jobs by schedule.")
+    elif a == "lazymage:ask":
+        sys.stdout.write("Are you sure you want to continue? [y/N] ")
+        sys.stdout.flush()
+        ans = sys.stdin.readline().strip()
+        out(f"You answered: {ans or '(empty)'}")
+        return 0 if ans.lower().startswith("y") else 1
+    else:
+        ns = a.split(":")[0]
+        out("", err=True)
+        out(f"  There are no commands defined in the \"{ns}\" namespace.  ", err=True)
+        out("", err=True)
+        return 1
+    return 0
+
+
+def composer(args):
+    a = args[0] if args else ""
+    if a == "install":
+        out("Installing dependencies from lock file (including require-dev)", err=True)
+        out("Verifying lock file contents can be installed on current platform.", err=True)
+        for i in range(40):
+            out(f"  - Installing vendor/package-{i:02d} (1.{i}.0): Extracting archive", err=True, delay=0.5)
+        out("Generating autoload files", err=True)
+    elif a == "update":
+        out("Loading composer repositories with package information", err=True, delay=0.5)
+        out("Nothing to modify in lock file", err=True)
+    elif a == "require":
+        pkg = args[1] if len(args) > 1 else ""
+        out(f"./composer.json has been updated", err=True)
+        out(f"Running composer update {pkg}", err=True, delay=0.4)
+        out(f"  - Locking {pkg} (1.0.0)", err=True)
+    elif a == "show":
+        out("magento/product-community-edition 2.4.7-p3 ~ 2.4.8 Magento 2 Community Edition")
+    elif a == "dump-autoload":
+        out("Generating autoload files", err=True)
+        out("Generated autoload files", err=True)
+    else:
+        out(f"Command \"{a}\" is not defined.", err=True)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except KeyboardInterrupt:
+        sys.exit(130)
+    except BrokenPipeError:
+        sys.exit(141)
