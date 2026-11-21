@@ -1,29 +1,17 @@
 #!/usr/bin/env bash
-# Build release binaries and publish them as a GitHub release.
+# Releases are published by .github/workflows/release.yml: every push to main
+# ships the next patch version automatically. Use this script only to bump
+# the minor or major version (or to re-run a patch release by hand):
 #
-#   scripts/release.sh v0.2.0
+#   scripts/release.sh minor     # v0.1.7 → v0.2.0
+#   scripts/release.sh major     # v0.2.3 → v1.0.0
 #
-# Needs: go, gh (logged in), a clean working tree on main, pushed.
+# Needs: gh (logged in). Releases the current origin/main.
 set -euo pipefail
 
-tag="${1:?usage: scripts/release.sh vX.Y.Z}"
+bump="${1:?usage: scripts/release.sh patch|minor|major}"
+case "$bump" in patch | minor | major) ;; *) echo "usage: scripts/release.sh patch|minor|major" >&2; exit 1 ;; esac
 cd "$(dirname "$0")/.."
 
-[ -z "$(git status --porcelain)" ] || { echo "working tree is not clean" >&2; exit 1; }
-git fetch -q origin
-[ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] || { echo "HEAD is not origin/main; push first" >&2; exit 1; }
-
-go test ./...
-
-rm -rf dist
-for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64; do
-  os="${target%/*}" arch="${target#*/}"
-  CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath \
-    -ldflags "-s -w -X main.version=$tag" -o "dist/lazymage-$os-$arch" .
-done
-(cd dist && shasum -a 256 lazymage-* > checksums.txt)
-
-# gh creates the tag on GitHub at this commit, so no git push credentials are needed.
-gh release create "$tag" dist/* --target "$(git rev-parse HEAD)" \
-  --title "lazymage $tag" --generate-notes
-git fetch -q --tags origin
+gh workflow run release.yml --ref main -f bump="$bump"
+echo "Started a $bump release of origin/main. Follow it with: gh run watch"

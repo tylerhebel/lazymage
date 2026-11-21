@@ -120,11 +120,14 @@ go build -o lazymage .                 # local binary
 go install .                           # into $(go env GOPATH)/bin
 ```
 
-Releases: `scripts/release.sh vX.Y.Z` runs the tests and builds
-`dist/lazymage-{darwin,linux}-{arm64,amd64}` (static, `CGO_ENABLED=0`, version
-stamped with `-ldflags "-X main.version=vX.Y.Z"`). It also writes
-`checksums.txt`, tags the commit, and publishes a GitHub release with those
-files. Run it from a clean, pushed `main`.
+Releases are automatic: every push to `main` runs the tests and publishes the
+next patch version (v0.1.0 → v0.1.1 → …) through
+`.github/workflows/release.yml`. It builds static
+`lazymage-{darwin,linux}-{arm64,amd64}` binaries stamped with the version,
+plus `checksums.txt`. Pushes that only change Markdown or `docs/` don't
+release, and neither do commits with `[skip release]` in the message. For a
+minor or major bump, run `scripts/release.sh minor` (or `major`), or use
+*Run workflow* on the release action in GitHub.
 
 ## What it does
 
