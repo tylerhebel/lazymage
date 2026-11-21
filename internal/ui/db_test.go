@@ -111,7 +111,8 @@ func TestDBDumpThenImportWithBackup(t *testing.T) {
 		t.Fatal("dump contents must go to the file, not the output view")
 	}
 
-	// Import it, backing up first.
+	// Import it through bin/mysql, backing up first.
+	withBinMysql(t, root)
 	a.do(aDBImport)
 	if _, ok := top(a).(*dumpPicker); !ok {
 		t.Fatal("import should open the dump picker")
@@ -128,6 +129,9 @@ func TestDBDumpThenImportWithBackup(t *testing.T) {
 	pump(t, a, msgs, cmd, func() bool {
 		return a.run == nil && a.out != nil && a.out.exit != nil && strings.Contains(a.out.title, "< backups/one.sql.gz")
 	})
+	if !strings.HasPrefix(a.out.title, "bin/mysql < ") {
+		t.Fatalf("import should run bin/mysql < file, ran %s", a.out.title)
+	}
 	if a.out.exit.Code != 0 {
 		t.Fatalf("import failed:\n%s", outText(a))
 	}
@@ -146,8 +150,19 @@ func TestDBDumpThenImportWithBackup(t *testing.T) {
 	}
 }
 
+// withBinMysql gives the fake project docker-magento's bin/mysql (its non-TTY
+// branch, which is the one lazymage uses): clinotty → exec -T phpfpm mysql.
+func withBinMysql(t *testing.T, root string) {
+	t.Helper()
+	script := "#!/bin/sh\nexec \"$LAZYMAGE_DOCKER\" compose exec -T phpfpm mysql -hdb -umagento -pmagento magento \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(root, "bin", "mysql"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDBReplaceURLs(t *testing.T) {
-	a, _, msgs := fakeDBApp(t)
+	a, root, msgs := fakeDBApp(t)
+	withBinMysql(t, root)
 	os.WriteFile(filepath.Join(os.Getenv("FAKE_DOCKER_STATE"), "db-domain"), []byte("www.prod-shop.com"), 0o644)
 	a.facts.Domain = "shop.test"
 	pump(t, a, msgs, a.do(aDBReplaceURL), func() bool { _, ok := top(a).(*promptOverlay); return ok })
@@ -162,6 +177,9 @@ func TestDBReplaceURLs(t *testing.T) {
 	pump(t, a, msgs, cmd, func() bool { _, ok := top(a).(*confirmOverlay); return ok })
 	if body := top(a).(*confirmOverlay).body; !strings.Contains(body, "web/cookie/cookie_domain") {
 		t.Fatalf("preview should list matching rows:\n%s", body)
+	}
+	if body := top(a).(*confirmOverlay).body; !strings.Contains(body, "$ bin/mysql -N -B -e 'UPDATE") {
+		t.Fatalf("the update should go through bin/mysql:\n%s", body)
 	}
 	_, cmd = a.Update(key("y"))
 	pump(t, a, msgs, cmd, func() bool {

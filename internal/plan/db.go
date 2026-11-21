@@ -7,7 +7,15 @@ import (
 	"lazymage/internal/config"
 )
 
-// Database commands run inside the database container with `sh -c`. The
+// Import, queries and the client shell use docker-magento's bin/mysql where
+// the project has it (Hybrid and bin-only modes): `bin/mysql < dump.sql` and
+// `bin/mysql -N -B -e "SQL"` both take its non-TTY branch (bin/clinotty).
+//
+// Dumps never use bin/mysqldump: it runs n98-magerun2 through bin/cli, which
+// allocates a TTY (CRLF line endings in the output) and prints a download
+// notice on stdout the first time — both would end up inside the .sql file.
+//
+// Otherwise, database commands run inside the database container with `sh -c`. The
 // script reads the credentials from the container's own environment (set by
 // docker-magento's env/db.env), so the password never reaches lazymage, the
 // displayed command, or history. It is passed to the client through
@@ -57,19 +65,28 @@ func (b Builder) DBDump() []string {
 		`exec "$c" -u"$u" --single-transaction --quick --routines --triggers --no-tablespaces "$d"`)
 }
 
-// DBImport reads SQL from stdin into the database.
+// useBinMysql reports whether to go through the project's bin/mysql.
+func (b Builder) useBinMysql() bool { return b.Mode != config.ModeDockerOnly && b.has("mysql") }
+
+// DBImport reads SQL from stdin into the database (`bin/mysql < file`).
 func (b Builder) DBImport() []string {
+	if b.useBinMysql() {
+		return []string{"bin/mysql"}
+	}
 	return b.dbExec(false, dbCreds+dbClient+`exec "$c" -u"$u" "$d"`)
 }
 
 // DBQuery runs one SQL statement, printing tab-separated rows without headers.
 func (b Builder) DBQuery(sql string) []string {
+	if b.useBinMysql() {
+		return []string{"bin/mysql", "-N", "-B", "-e", sql}
+	}
 	return b.dbExec(false, dbCreds+dbClient+`exec "$c" -u"$u" -N -B -e "$1" "$d"`, sql)
 }
 
 // DBShell opens an interactive client; bin/mysql where the project has it.
 func (b Builder) DBShell() []string {
-	if b.Mode != config.ModeDockerOnly && b.has("mysql") {
+	if b.useBinMysql() {
 		return []string{"bin/mysql"}
 	}
 	return b.dbExec(true, dbCreds+dbClient+`exec "$c" -u"$u" "$d"`)

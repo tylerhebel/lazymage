@@ -259,6 +259,10 @@ def exec_(rest, st):
         return composer(cmd[1:])
     if svc == "db" and cmd[0] == "sh" and len(cmd) > 2 and cmd[1] == "-c":
         return fake_db(cmd[2], cmd[4:])
+    if cmd[0] in ("mysql", "mariadb"):  # bin/mysql → bin/clinotty mysql -h db … (from the PHP container)
+        if "-e" in cmd:
+            return fake_db('-e "$1"', [cmd[cmd.index("-e") + 1]])
+        return fake_db("client", [])
     if cmd[0] == "sh" and len(cmd) > 2 and cmd[1] == "-c":
         out("[fake container shell — this is your host shell; type exit to return to lazymage]")
         os.execvp("bash", ["bash", "--norc", "-i"])

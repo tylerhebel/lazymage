@@ -34,13 +34,22 @@ func TestDBCommandsKeepSecretsInContainer(t *testing.T) {
 	}
 }
 
-func TestDBShellPrefersBinMysql(t *testing.T) {
+func TestDBPrefersBinMysql(t *testing.T) {
 	root := t.TempDir()
 	os.MkdirAll(filepath.Join(root, "bin"), 0o755)
 	os.WriteFile(filepath.Join(root, "bin", "mysql"), []byte("#!/bin/sh\n"), 0o755)
 	b := New(&project.Project{Root: root}, config.ModeHybrid, "")
 	if got := b.DBShell(); len(got) != 1 || got[0] != "bin/mysql" {
 		t.Fatalf("got %v", got)
+	}
+	if got := b.DBImport(); strings.Join(got, " ") != "bin/mysql" {
+		t.Fatalf("import should be bin/mysql < file, got %v", got)
+	}
+	if got := b.DBQuery("SELECT 1"); strings.Join(got, " ") != "bin/mysql -N -B -e SELECT 1" {
+		t.Fatalf("query: %v", got)
+	}
+	if got := strings.Join(b.DBDump(), " "); !strings.Contains(got, "exec -T db sh -c") {
+		t.Fatalf("dumps must not use bin/mysqldump: %s", got)
 	}
 	b.Mode = config.ModeDockerOnly
 	if got := strings.Join(b.DBShell(), " "); !strings.Contains(got, "exec db sh -c") {
