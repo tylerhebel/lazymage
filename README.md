@@ -11,22 +11,111 @@ lazymage
 
 The full spec is in [`lazymage.md`](lazymage.md).
 
-## Build and install
+## Install (macOS)
+
+No Go or build step needed. lazymage is one prebuilt binary per platform,
+attached to each [GitHub release](https://github.com/tylerhebel/lazymage/releases).
+
+### Before you start
+
+- A docker-magento project you can already start with `bin/start`.
+- A container runtime: [OrbStack](https://orbstack.dev) (recommended) or Docker
+  Desktop, with at least 6 GB of memory allotted (docker-magento's `bin/start`
+  checks this).
+
+### 1. Install the binary
+
+Open Terminal and run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tylerhebel/lazymage/main/install.sh | sh
+```
+
+The script detects Apple Silicon or Intel, downloads the matching binary from
+the latest release, and puts it at `~/.local/bin/lazymage`. If that folder
+isn't on your `PATH`, the script prints the line to add:
+
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+exec zsh
+```
+
+Options: `LAZYMAGE_VERSION=v0.1.0` installs a specific release, and
+`LAZYMAGE_INSTALL_DIR=/some/dir` changes where it goes. For example:
+`curl -fsSL …/install.sh | LAZYMAGE_INSTALL_DIR=$HOME/bin sh`.
+
+<details>
+<summary>Manual install (without the script)</summary>
+
+1. On the [releases page](https://github.com/tylerhebel/lazymage/releases/latest),
+   download `lazymage-darwin-arm64` (Apple Silicon: M1 or later) or
+   `lazymage-darwin-amd64` (Intel). If you're not sure, `uname -m` in
+   Terminal prints `arm64` or `x86_64`.
+2. Move it into place and make it executable:
+
+   ```bash
+   mkdir -p ~/.local/bin
+   mv ~/Downloads/lazymage-darwin-arm64 ~/.local/bin/lazymage
+   chmod +x ~/.local/bin/lazymage
+   xattr -d com.apple.quarantine ~/.local/bin/lazymage   # see below
+   ```
+
+   The binary isn't notarized by Apple. A file downloaded with a browser gets
+   a quarantine flag, and macOS then blocks it ("cannot be opened because the
+   developer cannot be verified"). The `xattr` line removes that flag. The
+   install script uses `curl`, which doesn't add the flag.
+3. Add `~/.local/bin` to your `PATH` as shown above.
+
+</details>
+
+### 2. Check it
+
+```bash
+lazymage --version
+```
+
+### 3. First run
+
+```bash
+cd ~/code/my-magento-project     # the project root, or any folder inside it
+lazymage
+```
+
+The first time, a six-step setup wizard runs. It confirms the project, picks
+the runtime (it can start OrbStack or Docker Desktop for you), the integration
+mode (keep **Hybrid**), favorite commands, and preferences. Nothing is saved
+until you confirm on the last step. Settings go to
+`~/.config/lazymage/config.yaml`. To run the wizard again, use `lazymage --setup`.
+
+### Update and uninstall
+
+Run the install command again to update to the latest release. To uninstall:
+
+```bash
+rm ~/.local/bin/lazymage
+rm -rf ~/.config/lazymage        # optional: settings and cache
+```
+
+### Flags
+
+`--setup` re-runs the setup wizard, `--debug` writes
+`~/.config/lazymage/debug.log` (secrets redacted), and `--version` prints the
+version.
+
+## Build from source
 
 Requires Go 1.26+ (built and tested with Go 1.27.4; older toolchains auto-download via GOTOOLCHAIN).
 
 ```bash
 go build -o lazymage .                 # local binary
 go install .                           # into $(go env GOPATH)/bin
-GOOS=darwin GOARCH=arm64 go build -o dist/lazymage-darwin-arm64 .
-GOOS=darwin GOARCH=amd64 go build -o dist/lazymage-darwin-amd64 .
 ```
 
-Release-binary layout (v1, no Homebrew yet): `dist/lazymage-<os>-<arch>`, one
-static binary each, built with `-ldflags "-X main.version=vX.Y.Z"`.
-
-Flags: `--setup` re-runs the setup wizard, `--debug` writes
-`~/.config/lazymage/debug.log` (secrets redacted), `--version`.
+Releases: `scripts/release.sh vX.Y.Z` runs the tests and builds
+`dist/lazymage-{darwin,linux}-{arm64,amd64}` (static, `CGO_ENABLED=0`, version
+stamped with `-ldflags "-X main.version=vX.Y.Z"`). It also writes
+`checksums.txt`, tags the commit, and publishes a GitHub release with those
+files. Run it from a clean, pushed `main`.
 
 ## What it does
 
