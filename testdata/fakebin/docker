@@ -116,6 +116,25 @@ def main(argv):
         return 0
     if cmd == "compose":
         return compose(rest)
+    if cmd == "pull":
+        img = rest[-1] if rest else ""
+        if "bad" in img:
+            out(f"Error response from daemon: manifest for {img} not found: manifest unknown", err=True)
+            return 1
+        out(f"{img.split(':')[-1]}: Pulling from {img.split(':')[0]}")
+        out(f"Status: Downloaded newer image for {img}", delay=0.1)
+        return 0
+    if cmd == "run":
+        img = next((a for a in rest if "magento-php:" in a), "")
+        if "check-platform-reqs" in rest:
+            if php_minor(img) < "8.2":
+                out("Checking platform requirements for packages in the vendor dir")
+                out(f"php                  {php_minor(img)}.33  magento/framework requires php (~8.2.0||~8.3.0)  failed")
+                return 2
+            out("Checking platform requirements for packages in the vendor dir")
+            out(f"php                  {php_minor(img)}.10  success")
+            return 0
+        return 0
     out("fake docker: unsupported command: " + " ".join(argv), err=True)
     return 1
 
@@ -134,8 +153,15 @@ def compose(args):
     proj = os.path.basename(os.getcwd()).lower()
     sub, rest = (args[0], args[1:]) if args else ("", [])
     if sub == "config":
+        if "json" in rest:
+            out(json.dumps({"services": {s: {"image": configured_image(s)} for s in svcs}}))
+            return 0
         for s in svcs:
             out(s)
+        return 0
+    if sub == "pull":
+        for s in svcs:
+            out(f" {s} Pulled", err=True, delay=0.05)
         return 0
     if not engine_running():
         die_engine()
@@ -159,7 +185,7 @@ def compose(args):
             status = "Up 2 minutes" if state == "running" else "Exited (0) 1 minute ago"
             if h:
                 status += " (health: starting)" if h == "starting" else " (healthy)"
-            image = {"phpfpm": "markoshust/magento-php:8.4-fpm-3", "app": "markoshust/magento-nginx:1.28-0"}.get(s, s + ":latest")
+            image = info.get("image") or configured_image(s)
             rows.append({"Name": f"{proj}-{s}-1", "Service": s, "State": state, "Health": h, "Status": status, "Image": image})
         if "json" in rest:
             for r in rows:
@@ -171,10 +197,13 @@ def compose(args):
                 out(f"{r['Name']:<28}{r['Image']:<36}{entry:<12}{r['Service']:<16}{'2 minutes ago':<16}{r['Status']:<34}")
         return 0
     if sub == "up":
+        if any("FAILUP" in read_file(f) for f in files):
+            out("Error response from daemon: invalid mount config for type \"bind\": bind source path does not exist", err=True)
+            return 1
         for s in svcs:
             out(f" Container {proj}-{s}-1  Creating", err=True, delay=0.05)
         for s in svcs:
-            st[s] = {"state": "running", "started": time.time()}
+            st[s] = {"state": "running", "started": time.time(), "image": configured_image(s)}
             save_services(st)
             out(f" Container {proj}-{s}-1  Started", err=True, delay=0.4)
         return 0
@@ -241,6 +270,24 @@ def logs(rest, svcs, st, proj):
         k += 1
 
 
+DEFAULT_IMAGES = {"phpfpm": "markoshust/magento-php:8.4-fpm-3", "phpfpm-xdebug": "markoshust/magento-php:8.4-fpm-xdebug-3", "app": "markoshust/magento-nginx:1.28-0"}
+
+
+def configured_image(svc):
+    img = DEFAULT_IMAGES.get(svc, svc + ":latest")
+    try:
+        text = open("compose.override.yaml").read()
+    except OSError:
+        return img
+    m = re.search(r"(?m)^  " + re.escape(svc) + r":\n(?:    .*\n)*?    image: (\S+)", text)
+    return m.group(1) if m else img
+
+
+def php_minor(img):
+    m = re.search(r":(\d+\.\d+)-", img)
+    return m.group(1) if m else "8.4"
+
+
 def exec_(rest, st):
     while rest and rest[0].startswith("-"):
         if rest[0] in ("-u", "--user", "-w", "--workdir", "-e", "--env"):
@@ -253,7 +300,21 @@ def exec_(rest, st):
         return 1
     if not cmd:
         return 0
+    running_php = php_minor(st.get(svc, {}).get("image") or configured_image(svc))
+    if cmd[0] == "php" and "-r" in cmd:
+        sys.stdout.write(running_php + ".10")
+        return 0
+    if svc == "app" and cmd[:2] == ["nginx", "-t"]:
+        if "broken." in read_file("store.map.conf"):
+            out('nginx: [emerg] invalid number of arguments in "map" directive in /etc/nginx/conf.d/store.map.conf:5', err=True)
+            out("nginx: configuration file /etc/nginx/nginx.conf test failed", err=True)
+            return 1
+        out("nginx: the configuration file /etc/nginx/nginx.conf syntax is ok", err=True)
+        return 0
     if cmd[0] == "bin/magento":
+        if running_php == "8.5":
+            out("PHP Fatal error:  Uncaught Error: Call to undefined function each() in /var/www/html/vendor/magento/framework/App/Bootstrap.php:42", err=True)
+            return 255
         return magento(cmd[1:])
     if cmd[0] == "composer":
         return composer(cmd[1:])
@@ -280,6 +341,13 @@ def exec_(rest, st):
         return 0
     out(" ".join(cmd))
     return 0
+
+
+def read_file(path):
+    try:
+        return open(path).read()
+    except OSError:
+        return ""
 
 
 def fake_db(script, args):
@@ -312,6 +380,22 @@ def fake_db(script, args):
                       ("cfg", "default:0", "design/theme/theme_id", "4"), ("cfg", "default:0", "general/locale/code", "en_US"),
                       ("cfg", "stores:2", "general/locale/code", "de_DE"),
                       ("store", "1", "1", "default"), ("store", "2", "1", "german")]:
+                out("\t".join(r))
+            return 0
+        if sql.startswith("SELECT 'store'"):
+            for r in [("store", "1", "1:1:1", "default:Default Store View"), ("store", "2", "1:1:1", "german:Deutsch"),
+                      ("store", "3", "2:2:0", "b2b:B2B Store"),
+                      ("website", "1", "base:1:1", "Main Website"), ("website", "2", "b2b:2:0", "B2B"),
+                      ("group", "1", "1", "Main Store"), ("group", "2", "3", "B2B"),
+                      ("theme", "2", "Magento/blank", "frontend:NULL"), ("theme", "3", "Magento/luma", "frontend:2"),
+                      ("theme", "4", "Acme/default", "frontend:3"),
+                      ("cfg", "default:0", "web/unsecure/base_url", "http://%s/" % domain),
+                      ("cfg", "default:0", "web/secure/base_url", "https://%s/" % domain),
+                      ("cfg", "default:0", "web/secure/use_in_frontend", "1"),
+                      ("cfg", "default:0", "design/theme/theme_id", "4"), ("cfg", "default:0", "general/locale/code", "en_US"),
+                      ("cfg", "stores:2", "general/locale/code", "de_DE"), ("cfg", "stores:2", "web/url/use_store", "1"),
+                      ("cfg", "websites:2", "web/secure/base_url", "https://b2b.invalid/"),
+                      ("cfg", "websites:2", "design/theme/theme_id", "3")]:
                 out("\t".join(r))
             return 0
         if "base%url" in sql:
@@ -355,6 +439,8 @@ def magento(args):
         out("Flushed cache types:", delay=0.2)
         for t in ["config", "layout", "block_html", "collections", "reflection", "db_ddl", "compiled_config", "eav", "customer_notification", "config_integration", "config_integration_api", "full_page", "config_webservice", "translate"]:
             out(t)
+    elif a == "config:set":
+        out("Value was saved.")
     elif a == "cache:clean":
         out("Cleaned cache types:\nconfig\nlayout\nfull_page")
     elif a == "cache:status":
@@ -416,6 +502,8 @@ def composer(args):
         out(f"  - Locking {pkg} (1.0.0)", err=True)
     elif a == "show":
         out("magento/product-community-edition 2.4.7-p3 ~ 2.4.8 Magento 2 Community Edition")
+    elif a == "check-platform-reqs":
+        out("php                  8.4.10  success")
     elif a == "dump-autoload":
         out("Generating autoload files", err=True)
         out("Generated autoload files", err=True)

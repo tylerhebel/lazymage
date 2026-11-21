@@ -57,12 +57,15 @@ func (a *App) do(action string) tea.Cmd {
 	case aPrevTab:
 		a.tab, a.showO = (min(a.tab, numTabs)+numTabs-1)%numTabs, false
 		return a.onTab()
-	case aTab1, aTab2, aTab3, aTab4:
+	case aTab1, aTab2, aTab3, aTab4, aTab5:
 		a.tab, a.showO = int(action[len(action)-1]-'1'), false
 		return a.onTab()
 	case aRefresh:
-		if a.tab == tabGit {
+		switch a.tab {
+		case tabGit:
 			return tea.Batch(a.refresh(), a.gitRefresh())
+		case tabFrontend:
+			return tea.Batch(a.refresh(), a.feRefresh(true))
 		}
 		return a.refresh()
 	case aBgList:
@@ -120,15 +123,30 @@ func (a *App) do(action string) tea.Cmd {
 	case aShell:
 		return a.shell()
 	case aStorefront:
+		if u := a.selectedStoreURL(); u != "" {
+			return openURL(a.eff().Browser, u, "store")
+		}
 		return openURL(a.eff().Browser, a.storefrontURL(), "storefront")
 	case aAdmin:
 		return openURL(a.eff().Browser, a.adminURL(), "admin")
 	case aCopyURL:
+		if u := a.selectedStoreURL(); u != "" {
+			return a.copyText(u)
+		}
 		return a.copyText(a.storefrontURL())
 	case aCronStart, aCronStop, aCronStatus, aXdebugSetup, aXdebugCLI, aXdebugHelp, aXdebugOn, aXdebugOff, aXdebugStatus:
 		return a.doOps(action)
-	case aFEThemes, aFEEditThemes, aFESetupGrunt, aFENpmInstall, aFEGruntBuild, aFEGruntLess, aFEGruntWatch, aFEGruntFree:
+	case aFEThemes, aFEEditThemes, aFESetupGrunt, aFENpmInstall, aFEGruntBuild, aFEGruntLess, aFEGruntWatch, aFEGruntFree, aFEStaticDeploy, aFECleanStatic:
 		return a.doFrontend(action)
+
+	case aDoctor:
+		return a.openDoctor()
+	case aPHPSwitch:
+		return a.startPHPSwitch()
+	case aDMUpdate:
+		return a.startDMUpdate()
+	case aMultistore:
+		return a.openMultistore()
 
 	case aDBDump:
 		return a.dbDumpPrompt()
@@ -172,7 +190,7 @@ func (a *App) do(action string) tea.Cmd {
 func (a *App) disabledReason(action string) string {
 	switch action {
 	case aPalette, aHelp, aSettings, aSetup, aQuit, aUpdate, aSwitchProj, aBgList, aNewCustom, aManage, aEditConfig,
-		aNextTab, aPrevTab, aTab1, aTab2, aTab3, aTab4, aCancelRun, aViewOutput:
+		aNextTab, aPrevTab, aTab1, aTab2, aTab3, aTab4, aTab5, aCancelRun, aViewOutput:
 		return ""
 	}
 	if a.proj == nil {
@@ -201,7 +219,7 @@ func (a *App) disabledReason(action string) string {
 		}
 		return ""
 	case aStorefront, aCopyURL:
-		if a.facts.Domain == "" {
+		if a.facts.Domain == "" && a.selectedStoreURL() == "" {
 			return "domain unknown — set it with bin/setup-domain or a DOMAIN key in .env, then press r"
 		}
 		return ""
@@ -215,7 +233,7 @@ func (a *App) disabledReason(action string) string {
 		return ""
 	case aLogsPause, aLogsFollow, aLogsSearch, aLogsNext, aLogsPrev, aLogsFilter, aLogsClear, aLogsSave:
 		if !a.logs.opened {
-			return "open logs first (l)"
+			return "open the logs first (palette: Logs)"
 		}
 		return ""
 	}
@@ -228,13 +246,26 @@ func (a *App) disabledReason(action string) string {
 	switch action {
 	case aDBDump, aDBImport, aDBReplaceURL, aFEThemes:
 		return a.dbDisabled()
+	case aDoctor:
+		return ""
+	case aPHPSwitch, aDMUpdate, aMultistore:
+		if a.run != nil {
+			return "a command is already running (ctrl+c cancels it)"
+		}
+		if action == aPHPSwitch && a.builder().PHPService == "" {
+			return "no PHP service found in the compose files"
+		}
+		if action == aMultistore {
+			return a.dbDisabled()
+		}
+		return ""
 	case aFEGruntWatch:
 		return ""
 	case aXdebugHelp, aXdebugOn, aXdebugOff, aXdebugStatus:
 		return a.opsDisabled(action)
 	case aCronStart, aCronStop, aCronStatus, aXdebugSetup, aXdebugCLI:
 		return a.opsDisabled(action)
-	case aFESetupGrunt, aFENpmInstall, aFEGruntBuild, aFEGruntLess, aFEGruntFree:
+	case aFESetupGrunt, aFENpmInstall, aFEGruntBuild, aFEGruntLess, aFEGruntFree, aFEStaticDeploy, aFECleanStatic:
 		return a.feDisabled()
 	case aDBShell:
 		if len(a.services) > 0 && plan.DBServiceFrom(a.services) == "" {
@@ -256,15 +287,18 @@ func (a *App) disabledReason(action string) string {
 
 // onTab loads what a tab needs when it becomes visible.
 func (a *App) onTab() tea.Cmd {
-	if a.tab == tabGit {
+	switch a.tab {
+	case tabGit:
 		return a.gitRefresh()
+	case tabFrontend:
+		return a.feRefresh(false)
 	}
 	return nil
 }
 
 func (a *App) touchRecent(id string) {
 	switch id {
-	case aPalette, aHelp, aNextTab, aPrevTab, aTab1, aTab2, aTab3, aTab4, aQuit, aCancelRun:
+	case aPalette, aHelp, aNextTab, aPrevTab, aTab1, aTab2, aTab3, aTab4, aTab5, aQuit, aCancelRun:
 		return
 	}
 	out := []string{id}
@@ -424,7 +458,7 @@ func (a *App) routeExit(e runner.Exited) tea.Cmd {
 		cmds = append(cmds, a.factsCmds(true)...)
 	}
 	if a.out.opts.lifecycle {
-		cmds = append(cmds, a.psCmd())
+		cmds = append(cmds, a.psCmd(), tea.Tick(3*time.Second, func(time.Time) tea.Msg { return quickDoctorMsg{again: true} }))
 	}
 	if e.Code == 0 && !e.Cancelled {
 		cmds = append(cmds, a.setStatus("done: "+a.lastCmd, false))

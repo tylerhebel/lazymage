@@ -19,8 +19,9 @@ const (
 	tabMagento  = 1
 	tabComposer = 2
 	tabGit      = 3
-	tabLogs     = 4
-	numTabs     = 4 // tabs cycled with tab / 1–4
+	tabFrontend = 4
+	tabLogs     = 5
+	numTabs     = 5 // tabs cycled with tab / 1–5
 )
 
 // stackTab is the first tab: a checklist of what a working environment
@@ -134,6 +135,16 @@ func (s *stackTab) checklist(a *App, w int) []string {
 		out = append(out, step(4, true, false, "Storefront", u+sFaint.Render("  (o opens it, O the admin)")))
 	} else {
 		out = append(out, step(4, false, true, "Storefront", "domain unknown — set it with bin/setup-domain"))
+	}
+	switch f, w := a.doctorProblems(); {
+	case a.doctorAt.IsZero():
+		out = append(out, step(5, false, true, "Doctor", sFaint.Render("not run yet — D checks PHP, composer, nginx, hosts, SSL, docker-magento")))
+	case f > 0:
+		out = append(out, step(5, false, false, "Doctor", fmt.Sprintf("%d problem(s), %d warning(s) — D shows them with a fix for each", f, w)))
+	case w > 0:
+		out = append(out, step(5, true, true, "Doctor", fmt.Sprintf("%d warning(s) — D", w)))
+	default:
+		out = append(out, step(5, true, false, "Doctor", "no problems found"))
 	}
 	return out
 }

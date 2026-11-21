@@ -185,6 +185,33 @@ func (a *App) handleBackground(msg tea.Msg) (tea.Cmd, bool) {
 	case gitStatusMsg:
 		return a.onGitStatus(msg), true
 
+	case doctorMsg:
+		return a.onDoctor(msg), true
+
+	case quickDoctorMsg:
+		if a.engine == engineRunning && (a.doctorAt.IsZero() || msg.again) {
+			return a.doctorCmd(true), true
+		}
+		return nil, true
+
+	case phpInfoMsg:
+		return a.onPHPInfo(msg), true
+
+	case dmFetchMsg:
+		return a.onDMFetch(msg), true
+
+	case stepFnMsg:
+		return a.onStepFn(msg), true
+
+	case feStoresMsg:
+		return a.onFEStores(msg), true
+
+	case feResolveMsg:
+		if a.fe != nil && a.fe.root == msg.root {
+			a.fe.resolves = msg.hosts
+		}
+		return nil, true
+
 	case psMsg:
 		a.psBusy = false
 		if msg.engineDown {

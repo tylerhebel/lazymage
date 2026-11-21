@@ -86,11 +86,16 @@ type App struct {
 	tab   int // 0 logs, 1 magento, 2 composer
 	stack *stackTab
 	git   *gitView
-	logs  *logsModel
-	mage  *cmdTab
-	comp  *cmdTab
-	out   *outputView
-	showO bool
+	fe    *feTab
+
+	doctor     []docCheck
+	doctorAt   time.Time
+	doctorBusy bool
+	logs       *logsModel
+	mage       *cmdTab
+	comp       *cmdTab
+	out        *outputView
+	showO      bool
 
 	run    *runner.Run
 	runSeq int
@@ -214,7 +219,7 @@ func (a *App) saveConfig() bool {
 // --- tea.Model ---------------------------------------------------------------
 
 func (a *App) Init() tea.Cmd {
-	return tea.Batch(a.probeCmd(), a.servicesCmd(), a.tickCmd(), a.autoUpdateCheck())
+	return tea.Batch(a.probeCmd(), a.servicesCmd(), a.tickCmd(), a.autoUpdateCheck(), quickDoctorTick())
 }
 
 type statusClearMsg struct{ seq int }
@@ -334,6 +339,8 @@ func (a *App) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		ctx = "stack"
 	case tabGit:
 		ctx = "git"
+	case tabFrontend:
+		ctx = "frontend"
 	}
 	if act := actionForKey(key, ctx); act != "" {
 		return a.do(act)
@@ -346,6 +353,8 @@ func (a *App) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		return a.stack.update(a, msg)
 	case tabGit:
 		return a.gitUpdate(msg)
+	case tabFrontend:
+		return a.feUpdate(msg)
 	case tabLogs:
 		return a.logs.update(a, msg)
 	case 1:
@@ -439,6 +448,8 @@ func (a *App) viewMain() string {
 			content = a.stack.view(a, innerW, innerH)
 		case tabGit:
 			content = a.gitView(innerW, innerH)
+		case tabFrontend:
+			content = a.feView(innerW, innerH)
 		case tabLogs:
 			content = a.logs.view(a, innerW, innerH)
 		case 1:
@@ -451,7 +462,7 @@ func (a *App) viewMain() string {
 }
 
 func (a *App) viewTabs() string {
-	names := []string{"1 Stack", "2 Magento", "3 Composer", "4 Git"}
+	names := []string{"1 Stack", "2 Magento", "3 Composer", "4 Git", "5 Frontend"}
 	if a.tab == tabLogs {
 		names = append(names, "Logs")
 	}
@@ -554,8 +565,20 @@ func (a *App) viewHeader() string {
 		l2 = append(l2, a.proj.Root)
 	}
 	line2 := sFaint.Render(strings.Join(l2, " · "))
+	note := ""
+	if f, w := a.doctorProblems(); f > 0 {
+		note = sErr.Render(fmt.Sprintf("✗ %d problem(s) — D to fix", f))
+	} else if w > 0 {
+		note = sWarn.Render(fmt.Sprintf("◐ %d warning(s) — D", w))
+	}
 	if a.updateAvail.Tag != "" {
-		note := sWarn.Render("⬆ " + a.updateAvail.Tag + " available — U to update")
+		up := sWarn.Render("⬆ " + a.updateAvail.Tag + " available — U to update")
+		if note != "" {
+			up += "  " + note
+		}
+		note = up
+	}
+	if note != "" {
 		line2 = truncateStyled(line2, max(inner-lipgloss.Width(note)-2, 0))
 		line2 += strings.Repeat(" ", max(inner-lipgloss.Width(line2)-lipgloss.Width(note), 2)) + note
 	}
@@ -628,6 +651,8 @@ func (a *App) contextHints() string {
 		return a.stack.hints()
 	case tabGit:
 		return a.gitHints()
+	case tabFrontend:
+		return a.feHints()
 	case tabLogs:
 		return a.logs.hints()
 	default:
@@ -700,4 +725,12 @@ func (a *App) viewMalformed() string {
 		b.WriteString("\n" + sErr.Render(a.status))
 	}
 	return sBorder.Width(a.w).Height(a.h).Padding(1, 2).Render(b.String())
+}
+
+// top is the topmost overlay (nil if none).
+func top(a *App) overlay {
+	if len(a.overlays) == 0 {
+		return nil
+	}
+	return a.overlays[len(a.overlays)-1]
 }

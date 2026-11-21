@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"lazymage/internal/config"
+	"lazymage/internal/dm"
 	"lazymage/internal/frontend"
 	"lazymage/internal/update"
 )
@@ -102,7 +103,13 @@ func buildEntries(a *App) ([]paletteEntry, map[string]config.Scoped) {
 	add(aFEGruntLess, "Grunt: compile LESS…", catFrontend, cmdOr(func() string { return j(b.Grunt("less:<theme>")) }), "grunt less compile css styles frontend")
 	add(aFEGruntWatch, "Grunt: watch", catFrontend, cmdOr(func() string { return j(b.Grunt("watch")) }), "grunt watch livereload less frontend")
 	add(aFEGruntFree, "Run a grunt command…", catFrontend, cmdOr(func() string { return j(b.Grunt("<args>")) }), "grunt free form custom frontend")
+	add(aMultistore, "Multistore setup… (store domains, nginx, hosts, SSL)", catFrontend, "base URLs per store, "+dm.StoreMapFile+", "+dm.OverrideFile+", /etc/hosts, bin/setup-ssl", "multistore multi store website domain base url nginx map hosts ssl mage_run_code")
+	add(aFEStaticDeploy, "Deploy static content for a theme…", catFrontend, cmdOr(func() string { return j(b.Magento(staticDeployArgs("<Vendor/theme>", "<locales>")...)) }), "static content deploy theme locale frontend scd")
+	add(aFECleanStatic, "Clear generated static files and caches (confirm)", catFrontend, cmdOr(func() string { return j(b.Node("sh", "-c", cleanStaticScript)) }), "clean clear static pub view_preprocessed cache frontend css")
 	add(aFESetupGrunt, "Set up grunt (bin/setup-grunt, confirm)", catFrontend, "bin/setup-grunt", "setup grunt install configure frontend npm")
+	add(aDoctor, "Doctor: check the environment and fix problems", catStack, "containers, PHP, composer platform, bin/magento, docker-magento version, nginx, hosts, SSL", "doctor check health diagnose fix problems errors")
+	add(aPHPSwitch, "Switch PHP version…", catStack, "pull, check platform, set in "+dm.OverrideFile+", recreate, verify (rolls back on failure)", "php version switch change upgrade downgrade image")
+	add(aDMUpdate, "Update docker-magento (bin/ scripts, compose files)…", catStack, "newest release from github.com/"+dm.Repo+", backup, merge env files, pull, recreate", "docker-magento update upgrade bin scripts compose markshust latest")
 	cronCmd := func(op string) string {
 		if hasProj && a.eff().IntegrationMode != config.ModeDockerOnly && a.proj.HasBin("cron") {
 			return "bin/cron " + op + " (in the terminal)"

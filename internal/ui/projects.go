@@ -165,7 +165,8 @@ func (a *App) switchProject(dir string) string {
 	a.out, a.showO, a.tab = nil, false, tabStack
 	a.containers, a.services, a.health, a.psErr = nil, nil, docker.Summary{}, ""
 	a.lastCmd, a.lastExit, a.lastGruntTheme = "", "", ""
-	a.git = nil
+	a.git, a.fe = nil, nil
+	a.doctor, a.doctorAt, a.doctorBusy = nil, time.Time{}, false
 	a.startDir = p.Root
 	a.proj = p
 	a.facts = p.StaticFacts()

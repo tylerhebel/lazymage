@@ -96,6 +96,13 @@ func (a *App) doFrontend(action string) tea.Cmd {
 		})
 	case aFEGruntWatch:
 		return a.startBackground(b.Grunt("watch"), runOpts{kind: kindFrontend}, "grunt watch")
+	case aFEStaticDeploy:
+		return a.staticDeployPrompt()
+	case aFECleanStatic:
+		argv := b.Node("sh", "-c", cleanStaticScript)
+		a.push(newConfirm("Clear generated static files?", "Deletes pub/static/frontend, var/view_preprocessed and the page cache, then\n"+
+			"flushes Magento's caches. In developer mode the files are generated again on\nthe next page load.\n\n$ "+config.JoinArgs(argv),
+			"Clear", func() tea.Cmd { return a.startRun(argv, runOpts{kind: kindFrontend}) }))
 	case aFEGruntFree:
 		a.push(newPrompt("Run a grunt command", argPrompt{Label: "grunt arguments (e.g. clean:luma, exec:luma, less:luma, watch)", Required: true}, func(v string) tea.Cmd {
 			words, err := config.SplitArgs(v)
@@ -109,6 +116,51 @@ func (a *App) doFrontend(action string) tea.Cmd {
 }
 
 const kindFrontend = "frontend"
+
+// cleanStaticScript clears what grunt clean / a static deploy regenerate.
+const cleanStaticScript = `rm -rf pub/static/frontend var/view_preprocessed/pub/static/frontend var/page_cache/* && bin/magento cache:flush`
+
+// staticDeployPrompt asks for "Vendor/theme locale…", defaulting to the
+// theme and locales of the store views.
+func (a *App) staticDeployPrompt() tea.Cmd {
+	var choices []string
+	byTheme := map[string][]string{}
+	var order []string
+	if a.fe != nil {
+		for _, s := range a.fe.stores {
+			if s.Theme == "" {
+				continue
+			}
+			if _, ok := byTheme[s.Theme]; !ok {
+				order = append(order, s.Theme)
+			}
+			if !contains(byTheme[s.Theme], s.Locale) {
+				byTheme[s.Theme] = append(byTheme[s.Theme], s.Locale)
+			}
+		}
+	}
+	for _, t := range order {
+		choices = append(choices, t+" "+strings.Join(byTheme[t], " "))
+	}
+	es, _ := a.currentThemes()
+	for _, e := range es {
+		if e.Area == "frontend" && !contains(choices, e.Name+" "+e.Locale) {
+			choices = append(choices, e.Name+" "+e.Locale)
+		}
+	}
+	def := ""
+	if len(choices) > 0 {
+		def = choices[0]
+	}
+	a.push(newPrompt("Deploy static content", argPrompt{Label: "Vendor/theme and locales (e.g. Magento/luma en_US fr_FR)", Default: def, Required: true, Choices: choices}, func(v string) tea.Cmd {
+		words := strings.Fields(v)
+		if len(words) < 2 {
+			return a.setStatus("give a theme and at least one locale", true)
+		}
+		return a.startRun(a.builder().Magento(staticDeployArgs(words[0], words[1:]...)...), runOpts{kind: config.KindMagento})
+	}))
+	return nil
+}
 
 // --- local-themes.js generator ---------------------------------------------------------
 
@@ -224,7 +276,7 @@ func (a *App) confirmWriteThemes(es []frontend.Entry, hadFile bool) tea.Cmd {
 		if err := writeThemesFile(path, js); err != nil {
 			return a.setStatus("could not write "+rel+": "+err.Error(), true)
 		}
-		return a.setStatus(fmt.Sprintf("wrote %s (%s) — next: Grunt: build theme", rel, strings.Join(frontend.Keys(es), ", ")), false)
+		return tea.Batch(a.feRefresh(false), a.setStatus(fmt.Sprintf("wrote %s (%s) — next: Grunt: build theme", rel, strings.Join(frontend.Keys(es), ", ")), false))
 	}))
 	return nil
 }

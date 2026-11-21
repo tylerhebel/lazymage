@@ -108,11 +108,17 @@ type termDoneMsg struct {
 	code int
 	err  error
 	then func() tea.Cmd
+	// thenCode, if set, gets the exit code (and a start error).
+	thenCode func(code int, err error) tea.Cmd
 }
 
 // runInTerminal runs argv with the terminal handed over (for scripts that need
 // a TTY), pauses so the output can be read, and records it in history.
-func (a *App) runInTerminal(argv []string, kind string, then func() tea.Cmd) tea.Cmd {
+func (a *App) runInTerminal(argv []string, kind string, then func() tea.Cmd, thenCode ...func(int, error) tea.Cmd) tea.Cmd {
+	var tc func(int, error) tea.Cmd
+	if len(thenCode) > 0 {
+		tc = thenCode[0]
+	}
 	script := `"$@"; s=$?; printf '\n[exit %s — press enter to return to lazymage] ' "$s"; read _; exit "$s"`
 	cmd := exec.Command("sh", append([]string{"-c", script, "lazymage"}, argv...)...)
 	cmd.Dir = a.proj.Root
@@ -122,7 +128,7 @@ func (a *App) runInTerminal(argv []string, kind string, then func() tea.Cmd) tea
 		if ee, ok := err.(*exec.ExitError); ok {
 			code, err = ee.ExitCode(), nil
 		}
-		return termDoneMsg{argv: argv, kind: kind, code: code, err: err, then: then}
+		return termDoneMsg{argv: argv, kind: kind, code: code, err: err, then: then, thenCode: tc}
 	})
 }
 
@@ -140,6 +146,9 @@ func (a *App) onTermDone(m termDoneMsg) tea.Cmd {
 	}
 	if m.then != nil {
 		cmds = append(cmds, m.then())
+	}
+	if m.thenCode != nil {
+		cmds = append(cmds, m.thenCode(m.code, m.err))
 	}
 	return tea.Batch(cmds...)
 }

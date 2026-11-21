@@ -37,14 +37,16 @@ const (
 	aEditEnv    = "project.editenv"
 	aEditConfig = "project.editconfig"
 
-	aFEThemes     = "frontend.themes"
-	aFEEditThemes = "frontend.editthemes"
-	aFESetupGrunt = "frontend.setupgrunt"
-	aFENpmInstall = "frontend.npminstall"
-	aFEGruntBuild = "frontend.gruntbuild"
-	aFEGruntLess  = "frontend.gruntless"
-	aFEGruntWatch = "frontend.gruntwatch"
-	aFEGruntFree  = "frontend.grunt"
+	aFEThemes       = "frontend.themes"
+	aFEEditThemes   = "frontend.editthemes"
+	aFESetupGrunt   = "frontend.setupgrunt"
+	aFENpmInstall   = "frontend.npminstall"
+	aFEGruntBuild   = "frontend.gruntbuild"
+	aFEGruntLess    = "frontend.gruntless"
+	aFEGruntWatch   = "frontend.gruntwatch"
+	aFEGruntFree    = "frontend.grunt"
+	aFEStaticDeploy = "frontend.staticdeploy"
+	aFECleanStatic  = "frontend.cleanstatic"
 
 	aCronStart    = "cron.start"
 	aCronStop     = "cron.stop"
@@ -55,6 +57,11 @@ const (
 	aXdebugOn     = "xdebug.enable"
 	aXdebugOff    = "xdebug.disable"
 	aXdebugStatus = "xdebug.status"
+
+	aDoctor     = "env.doctor"
+	aPHPSwitch  = "env.phpswitch"
+	aDMUpdate   = "env.dmupdate"
+	aMultistore = "frontend.multistore"
 
 	aDBDump       = "db.dump"
 	aDBImport     = "db.import"
@@ -76,6 +83,7 @@ const (
 	aTab2       = "nav.tab2"
 	aTab3       = "nav.tab3"
 	aTab4       = "nav.tab4"
+	aTab5       = "nav.tab5"
 	aCancelRun  = "run.cancel"
 	aBgList     = "run.background"
 	aViewOutput = "run.view"
@@ -102,6 +110,7 @@ var Keymap = []Binding{
 	{[]string{"2"}, aTab2, "Magento tab", "Navigation", "global"},
 	{[]string{"3"}, aTab3, "Composer tab", "Navigation", "global"},
 	{[]string{"4"}, aTab4, "Git tab (status of the repository holding src/)", "Navigation", "global"},
+	{[]string{"5"}, aTab5, "Frontend tab (stores, themes, grunt, Tailwind)", "Navigation", "global"},
 	{[]string{"enter"}, "", "Run / open the selected item", "Navigation", "global"},
 	{[]string{"esc"}, "", "Back / close overlay", "Navigation", "global"},
 	{[]string{"pgup", "pgdown"}, "", "Scroll output a page", "Navigation", "global"},
@@ -114,6 +123,7 @@ var Keymap = []Binding{
 	{[]string{"q"}, aQuit, "Quit (confirms if a command is running)", "App", "global"},
 	{[]string{"ctrl+n"}, aNewCustom, "Create a custom command (in the palette)", "App", "palette"},
 
+	{[]string{"D"}, aDoctor, "Doctor: check the environment and fix problems", "Stack", "global"},
 	{[]string{"r"}, aRefresh, "Refresh header health and project facts", "Stack", "global"},
 	{[]string{"ctrl+c"}, aCancelRun, "Cancel the running command (not the app)", "Stack", "global"},
 	{[]string{"v"}, aViewOutput, "Show the last command's output", "Stack", "global"},
@@ -138,6 +148,14 @@ var Keymap = []Binding{
 	{[]string{"y"}, aCopyURL, "Copy storefront URL", "Project", "global"},
 
 	{[]string{"b"}, aFEGruntBuild, "Grunt: build a theme (clean, exec, less)", "Frontend", "global"},
+	{[]string{"M"}, aMultistore, "Multistore setup: store domains, nginx run codes, hosts, SSL", "Frontend", "global"},
+	{[]string{"enter", "o"}, "", "Open the selected store (y copies its URL)", "Frontend", "frontend"},
+	{[]string{"enter"}, "", "Build the selected grunt theme (clean, exec, less) / Tailwind theme", "Frontend", "frontend"},
+	{[]string{"l"}, "", "Compile LESS only for the selected theme", "Frontend", "frontend"},
+	{[]string{"d"}, "", "Deploy static content for the selected theme", "Frontend", "frontend"},
+	{[]string{"w"}, "", "Start / stop grunt watch (Tailwind watch on a Hyvä row)", "Frontend", "frontend"},
+	{[]string{"i"}, "", "npm install for the selected Hyvä theme", "Frontend", "frontend"},
+	{[]string{"R"}, "", "Reload stores from the database", "Frontend", "frontend"},
 	{[]string{"m"}, aDBShell, "MySQL shell in the database container", "Database", "global"},
 
 	{[]string{"enter", "d"}, "", "Show the selected file's diff", "Git", "git"},

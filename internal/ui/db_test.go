@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,10 +40,10 @@ func pump(t *testing.T, a *App, msgs chan tea.Msg, cmd tea.Cmd, done func() bool
 		if c == nil {
 			return
 		}
-		ch := make(chan tea.Msg, 1)
-		go func() { ch <- c() }()
-		select {
-		case m := <-ch:
+		// Commands run in the background, like the real program; slow ones
+		// (ticks, checks) deliver their message whenever they finish.
+		go func() {
+			m := c()
 			if b, ok := m.(tea.BatchMsg); ok {
 				for _, x := range b {
 					run(x)
@@ -52,8 +53,7 @@ func pump(t *testing.T, a *App, msgs chan tea.Msg, cmd tea.Cmd, done func() bool
 			if m != nil {
 				msgs <- m
 			}
-		case <-time.After(150 * time.Millisecond):
-		}
+		}()
 	}
 	run(cmd)
 	deadline := time.After(20 * time.Second)
@@ -67,7 +67,11 @@ func pump(t *testing.T, a *App, msgs chan tea.Msg, cmd tea.Cmd, done func() bool
 			_, c := a.Update(m)
 			run(c)
 		case <-deadline:
-			t.Fatalf("timed out; output:\n%s", outText(a))
+			st := fmt.Sprintf("status=%q doctorBusy=%v run=%v overlays=%d", a.status, a.doctorBusy, a.run != nil, len(a.overlays))
+			if o := top(a); o != nil {
+				st += fmt.Sprintf(" top=%T", o)
+			}
+			t.Fatalf("timed out (%s); output:\n%s", st, outText(a))
 		}
 	}
 }
@@ -81,13 +85,6 @@ func outText(a *App) string {
 		b.WriteString(l.Text + "\n")
 	}
 	return b.String()
-}
-
-func top(a *App) overlay {
-	if len(a.overlays) == 0 {
-		return nil
-	}
-	return a.overlays[len(a.overlays)-1]
 }
 
 func TestDBDumpThenImportWithBackup(t *testing.T) {
@@ -308,5 +305,45 @@ func TestStackTabReplacesLogs(t *testing.T) {
 	a.do(aNextTab)
 	if a.tab != tabStack {
 		t.Fatalf("tab from logs goes back to the cycle, got %d", a.tab)
+	}
+}
+
+func TestFrontendTab(t *testing.T) {
+	a, root, msgs := fakeDBApp(t)
+	tw := filepath.Join(root, "src/app/design/frontend/Acme/default/web/tailwind")
+	os.MkdirAll(tw, 0o755)
+	os.WriteFile(filepath.Join(tw, "package.json"), []byte(`{"scripts":{"build-prod":"x","watch":"y"}}`), 0o644)
+
+	pump(t, a, msgs, a.do(aTab5), func() bool { return a.fe != nil && a.fe.loaded })
+	if a.fe.storesErr != "" {
+		t.Fatal(a.fe.storesErr)
+	}
+	if len(a.fe.stores) != 3 || a.fe.stores[0].Code != "default" {
+		t.Fatalf("stores: %+v", a.fe.stores)
+	}
+	// Acme/default is not a Hyvä theme here, so no Tailwind row.
+	if len(a.fe.tailwind) != 0 {
+		t.Fatalf("tailwind rows for a non-Hyvä theme: %+v", a.fe.tailwind)
+	}
+	a.Update(key("j"))
+	if u := a.selectedStoreURL(); !strings.HasSuffix(u, "/german/") || !strings.HasPrefix(u, "https://") {
+		t.Fatalf("selected store URL = %q", u)
+	}
+	view := a.feView(140, 40)
+	for _, want := range []string{"Deutsch", "de_DE", "https://b2b.invalid/", "disabled", "Generate local-themes.js"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view missing %q:\n%s", want, view)
+		}
+	}
+	if r := a.disabledReason(aStorefront); r != "" {
+		t.Errorf("o on a store row should be allowed: %s", r)
+	}
+	// Last row is a task; the stores' tasks come after the stores.
+	a.Update(key("G"))
+	if r, _ := a.fe.selected(); r.kind != feTask {
+		t.Fatalf("G should reach the tasks, got %+v", r)
+	}
+	if a.selectedStoreURL() != "" {
+		t.Fatal("no store URL on a task row")
 	}
 }
