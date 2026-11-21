@@ -116,6 +116,9 @@ func (o *outputView) view(a *App, w, h int) string {
 	switch {
 	case running:
 		status = sWarn.Render(fmt.Sprintf("● running · %s", fmtDur(time.Since(o.started))))
+		if o.opts.meter != nil {
+			status = sFaint.Render(o.opts.meter()) + "  " + status
+		}
 	case o.exit == nil:
 		status = sFaint.Render("not started")
 	case o.exit.Cancelled:
@@ -133,6 +136,7 @@ func (o *outputView) view(a *App, w, h int) string {
 	head = append(head, sFaint.Render(strings.Repeat("─", w)))
 
 	footer := 0
+	running = running && !o.opts.noStdin
 	if running {
 		footer = 1
 	}

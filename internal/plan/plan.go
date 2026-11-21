@@ -17,6 +17,7 @@ type Builder struct {
 	P          *project.Project
 	Mode       string
 	PHPService string
+	DBService  string // "" means docker-magento's "db"
 }
 
 func New(p *project.Project, mode, phpService string) Builder {
@@ -198,4 +199,26 @@ func (b Builder) Custom(cc config.CustomCommand, values map[string]string) ([]st
 		return b.Compose(args...), nil
 	}
 	return nil, fmt.Errorf("unknown kind %q", cc.Kind)
+}
+
+// Node runs a Node.js tool (npm, npx, node) in the PHP container, which in
+// docker-magento has Node installed. bin/npm and bin/grunt use bin/cli (a
+// TTY), so bin/clinotty is used for piped output, as for bin/magento.
+func (b Builder) Node(tool string, args ...string) []string {
+	if b.Mode != config.ModeDockerOnly && b.has("clinotty") {
+		return append([]string{"bin/clinotty", tool}, args...)
+	}
+	return b.execT(append([]string{tool}, args...)...)
+}
+
+// Grunt runs `npx grunt args...`.
+func (b Builder) Grunt(args ...string) []string {
+	return b.Node("npx", append([]string{"grunt"}, args...)...)
+}
+
+// GruntBuild cleans, deploys and compiles one theme in a single run:
+// grunt clean:<theme> && grunt exec:<theme> && grunt less:<theme>.
+func (b Builder) GruntBuild(theme string) []string {
+	script := `npx grunt clean:"$1" && npx grunt exec:"$1" && npx grunt less:"$1"`
+	return b.Node("sh", "-c", script, "lazymage", theme)
 }

@@ -484,7 +484,7 @@ Build one phase at a time. Each phase ends with a demo the developer can run, pl
 ### v2 candidates — do not build in v1
 
 - Xdebug enable / disable / status
-- Database tools: dump, import, `bin/mysql` shell, URL search-and-replace
+- Database tools: dump, import, `bin/mysql` shell, URL search-and-replace — **built (v2, 2026-11-21)**
 - Maintenance-mode toggle and cron status
 - Git status panel for `src/`
 - Multi-project switching, broader project-level config overrides (beyond per-project history and custom commands), Homebrew distribution

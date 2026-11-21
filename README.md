@@ -89,7 +89,16 @@ until you confirm on the last step. Settings go to
 
 ### Update and uninstall
 
-Run the install command again to update to the latest release. To uninstall:
+Press `U` in lazymage (or run `lazymage --update`). It downloads the newest
+release for your Mac or Linux machine, checks it against the release's
+`checksums.txt`, replaces the binary in place, and offers to restart. Once a
+day lazymage asks GitHub for the latest release and shows
+`⬆ vX.Y.Z available — U to update` in the header. Turn that check off in
+Settings (`S` → *Check for updates daily*); `U` still works on demand.
+Running the install command again also updates. Versions from 0.1.0 and
+earlier don't have `U` yet, so update those once with the install command.
+
+To uninstall:
 
 ```bash
 rm ~/.local/bin/lazymage
@@ -98,7 +107,7 @@ rm -rf ~/.config/lazymage        # optional: settings and cache
 
 ### Flags
 
-`--setup` re-runs the setup wizard, `--debug` writes
+`--setup` re-runs the setup wizard, `--update` installs the newest release, `--debug` writes
 `~/.config/lazymage/debug.log` (secrets redacted), and `--version` prints the
 version.
 
@@ -128,6 +137,8 @@ files. Run it from a clean, pushed `main`.
 | Composer (`3`) | install, update, require… (asks for the package), show --outdated, dump-autoload, free-form. Elapsed time is shown, and `ctrl+c` cancels the child process, not the app. |
 | Stack | Start / stop (confirms) / restart through `bin/start`, `bin/stop`, `bin/restart`, with live per-service progress while they run. |
 | Project | `s` shell into PHP, `o` / `O` storefront / admin, `y` copy URL, open `.env` or the config file in your editor. |
+| Frontend | `b` builds a theme (`grunt clean:<theme> && exec:<theme> && less:<theme>`, theme picked from `local-themes.js`, remembering the last one). From the palette: **Generate local-themes.js from the database…** reads every physical theme plus the theme and locale for each store (store → website → default), preselects the themes your stores use and the entries already in the file, previews the result, then writes `src/dev/tools/grunt/configs/local-themes.js`, keeping the old file as `.bak`. Also: open `local-themes.js` in your editor, `npm install`, compile LESS, `grunt watch`, free-form grunt, and `bin/setup-grunt`. Node tools run in the PHP container through `bin/clinotty`. |
+| Database | `m` opens a MySQL client (`bin/mysql`). From the palette: **Dump database…** writes `backups/<project>-<time>.sql.gz` (or `.sql`), showing bytes written; **Import database dump…** picks from `backups/` and the project root, confirms (optionally backing up first), and shows a progress bar; **Replace base URLs…** previews every `core_config_data` value containing a domain, replaces it after you confirm, then runs `cache:flush`. Credentials are read inside the db container from `env/db.env`, so no password reaches lazymage, the screen, or history. |
 | Palette (`x` / `ctrl+p`) | Every action, fuzzy-searchable, with its command and shortcut. Unavailable entries are shown with the reason. `ctrl+n` creates a custom command. |
 | Custom commands | Name, category, kind (Magento / Composer / bin / Compose / host shell), `{{placeholder}}` prompts, confirmation, shortcut (conflicts offer Replace / Pick another / Cancel), project or global scope, pin. Manage screen: run, edit, duplicate, delete, pin. |
 | Help (`?`) | Generated from the live keymap plus your shortcuts. |
@@ -230,7 +241,10 @@ internal/config            config load/save, custom-command templates, redaction
 internal/project           root detection, static facts, compose file set
 internal/docker            runtime detection, engine start plans, ps parsing, health
 internal/runner            async child processes, streaming, stdin, cancellation
-internal/plan              integration mode → exact argv
+internal/plan              integration mode → exact argv (db.go: database commands, SQL quoting)
+internal/update            release check, checksum-verified self-update, restart
+internal/frontend          grunt theme config: DB themes/locales → local-themes.js, and parsing it back
+internal/dbfile            dump files: gzip, partial-then-rename writes, import progress
 internal/ui                Bubble Tea app: wizard, header, tabs, palette, forms, overlays
 testdata/fakebin           fake docker / orb for the demo harness
 scripts/                   ground-truth capture, demo project builder

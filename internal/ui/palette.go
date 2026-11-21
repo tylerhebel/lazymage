@@ -8,6 +8,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"lazymage/internal/config"
+	"lazymage/internal/frontend"
+	"lazymage/internal/update"
 )
 
 type paletteOverlay struct {
@@ -91,6 +93,19 @@ func buildEntries(a *App) ([]paletteEntry, map[string]config.Scoped) {
 	}
 	add(aComposerFree, "Run a Composer command…", catComposer, cmdOr(func() string { return j(b.Composer("<command>")) }), "composer free form custom type")
 
+	lt := frontend.LocalThemesPath
+	add(aFEThemes, "Generate local-themes.js from the database…", catFrontend, "read themes + store locales, pick, preview, write "+lt, "themes local-themes grunt config generate frontend locale theme")
+	add(aFEEditThemes, "Open local-themes.js in editor", catFrontend, j(a.editorArgv())+" "+lt, "edit open local-themes themes grunt config frontend")
+	add(aFENpmInstall, "npm install", catFrontend, cmdOr(func() string { return j(b.Node("npm", "install")) }), "npm install node modules packages frontend")
+	add(aFEGruntBuild, "Grunt: build theme…", catFrontend, cmdOr(func() string { return j(b.GruntBuild("<theme>")) }), "grunt build theme clean exec less compile css frontend")
+	add(aFEGruntLess, "Grunt: compile LESS…", catFrontend, cmdOr(func() string { return j(b.Grunt("less:<theme>")) }), "grunt less compile css styles frontend")
+	add(aFEGruntWatch, "Grunt: watch", catFrontend, cmdOr(func() string { return j(b.Grunt("watch")) }), "grunt watch livereload less frontend")
+	add(aFEGruntFree, "Run a grunt command…", catFrontend, cmdOr(func() string { return j(b.Grunt("<args>")) }), "grunt free form custom frontend")
+	add(aFESetupGrunt, "Set up grunt (bin/setup-grunt, confirm)", catFrontend, "bin/setup-grunt", "setup grunt install configure frontend npm")
+	add(aDBShell, "MySQL client", catDB, cmdOr(func() string { return j(b.DBShell()) }), "mysql mariadb database db sql client shell console")
+	add(aDBDump, "Dump database…", catDB, cmdOr(func() string { return j(b.DBDump()) + " > backups/….sql.gz" }), "dump backup export database db mysqldump save")
+	add(aDBImport, "Import database dump… (confirm)", catDB, cmdOr(func() string { return j(b.DBImport()) + " < ….sql[.gz]" }), "import restore load database db dump sql")
+	add(aDBReplaceURL, "Replace base URLs… (confirm)", catDB, "preview, UPDATE core_config_data, cache:flush", "url base_url domain search replace database db config")
 	add(aShell, "Shell into PHP container", catProject, cmdOr(func() string { return j(b.Shell(a.cfg.Shell)) }), "shell bash zsh terminal ssh exec cli container php")
 	add(aStorefront, "Open storefront", catProject, "open "+orUnknown(a.storefrontURL()), "open browser storefront site frontend web")
 	add(aAdmin, "Open admin", catProject, "open "+orUnknown(a.adminURL()), "open browser admin backend dashboard")
@@ -103,6 +118,7 @@ func buildEntries(a *App) ([]paletteEntry, map[string]config.Scoped) {
 	add(aHelp, "Help", catApp, "every keybinding", "help keys keybindings shortcuts")
 	add(aNewCustom, "Create a custom command…", catApp, "name, command, prompts, shortcut, scope", "new create custom command add")
 	add(aManage, "Manage custom commands…", catApp, "run, edit, duplicate, delete, pin", "manage custom commands edit delete")
+	add(aUpdate, "Update lazymage…", catApp, "download the newest release from github.com/"+update.Repo+" and replace "+a.opts.Version, "update upgrade new version release self install")
 	add(aQuit, "Quit", catApp, "exit lazymage", "quit exit close")
 
 	customs := map[string]config.Scoped{}

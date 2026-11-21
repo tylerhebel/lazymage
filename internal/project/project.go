@@ -210,6 +210,7 @@ func HostOf(s string) string {
 }
 
 var (
+	tablePfxRe   = regexp.MustCompile(`['"]table_prefix['"]\s*=>\s*['"]([A-Za-z0-9_]*)['"]`)
 	frontNameRe  = regexp.MustCompile(`['"]frontName['"]\s*=>\s*['"]([^'"]+)['"]`)
 	mageModeRe   = regexp.MustCompile(`['"]MAGE_MODE['"]\s*=>\s*['"]([a-z]+)['"]`)
 	baseURLRe    = regexp.MustCompile(`['"]base_url['"]\s*=>\s*['"](https?://[^'"]+)['"]`)
@@ -218,6 +219,20 @@ var (
 	cliVersionRe = regexp.MustCompile(`(?i)magento cli (?:version )?v?([0-9][0-9A-Za-z.\-]*)`)
 	modeShowRe   = regexp.MustCompile(`(?i)current application mode:\s*([a-z]+)`)
 )
+
+// ParseTablePrefix reads the database table prefix from env.php ("" when none).
+func ParseTablePrefix(envphp string) string {
+	if m := tablePfxRe.FindStringSubmatch(envphp); m != nil {
+		return m[1]
+	}
+	return ""
+}
+
+// TablePrefix is the project's database table prefix, read from env.php.
+func (p *Project) TablePrefix() string {
+	b, _ := os.ReadFile(filepath.Join(p.Root, "src", "app", "etc", "env.php"))
+	return ParseTablePrefix(string(b))
+}
 
 func ParseAdminFrontName(envphp string) string {
 	if m := frontNameRe.FindStringSubmatch(envphp); m != nil {

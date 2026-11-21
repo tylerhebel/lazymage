@@ -31,11 +31,13 @@ const (
 	catCache    = "Magento — cache & index"
 	catSetup    = "Magento — setup"
 	catComposer = "Composer"
+	catFrontend = "Frontend"
+	catDB       = "Database"
 	catProject  = "Project"
 	catApp      = "App"
 )
 
-var categoryOrder = []string{catStack, catLogs, catCache, catSetup, catComposer, catProject, catApp}
+var categoryOrder = []string{catStack, catLogs, catCache, catSetup, catComposer, catFrontend, catDB, catProject, catApp}
 
 var mageCatalog = []mageCommand{
 	{Cmd: "cache:flush", Category: catCache, Desc: "Flush all cache storage", Keywords: "flush clear cache purge"},

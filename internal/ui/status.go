@@ -254,10 +254,22 @@ func (a *App) handleBackground(msg tea.Msg) (tea.Cmd, bool) {
 		return nil, true
 
 	case shellDoneMsg:
-		if msg.err != nil {
-			return a.setStatus("shell exited: "+msg.err.Error(), true), true
+		what := msg.what
+		if what == "" {
+			what = "the container shell"
 		}
-		return a.setStatus("back from the container shell", false), true
+		if msg.err != nil {
+			return a.setStatus(what+" exited: "+msg.err.Error(), true), true
+		}
+		return a.setStatus("back from "+what, false), true
+
+	case updateCheckedMsg:
+		return a.onUpdateChecked(msg), true
+	case updateInstalledMsg:
+		return a.onUpdateInstalled(msg), true
+
+	case dbQueryMsg:
+		return msg.next(msg.out, msg.err), true
 
 	case editorDoneMsg:
 		if msg.err != nil {

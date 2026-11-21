@@ -32,6 +32,7 @@ var settingRows = []settingRow{
 	{"tail", "Log lines on open"},
 	{"follow", "Follow logs on open"},
 	{"refresh", "Health refresh (seconds)"},
+	{"updates", "Check for updates daily"},
 	{"favorites", "Favorite Magento commands"},
 	{"manage", "Manage custom commands…"},
 	{"setup", "Re-run setup…"},
@@ -67,6 +68,11 @@ func (s *settingsOverlay) value(a *App, id string) string {
 		return "off"
 	case "refresh":
 		return strconv.Itoa(c.RefreshSeconds)
+	case "updates":
+		if c.CheckUpdates() {
+			return "on" + sFaint.Render("  (U updates now)")
+		}
+		return "off" + sFaint.Render("  (U still updates on demand)")
 	case "favorites":
 		return fmt.Sprintf("%d selected", len(c.Favorites))
 	case "config":
@@ -149,6 +155,14 @@ func (s *settingsOverlay) update(a *App, msg tea.Msg) tea.Cmd {
 		return a.setStatus("integration mode: "+modeLabel(a.cfg.IntegrationMode), false)
 	case "follow":
 		a.cfg.Logs.FollowOnOpen = !a.cfg.Logs.FollowOnOpen
+		a.saveConfig()
+		return nil
+	case "updates":
+		on := !a.cfg.CheckUpdates()
+		a.cfg.UpdateCheck = &on
+		if on {
+			a.cfg.UpdateCheck = nil // the default; keeps the config file tidy
+		}
 		a.saveConfig()
 		return nil
 	}

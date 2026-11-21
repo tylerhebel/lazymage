@@ -13,6 +13,7 @@ import (
 	"lazymage/internal/plan"
 	"lazymage/internal/project"
 	"lazymage/internal/runner"
+	"lazymage/internal/update"
 )
 
 const (
@@ -101,6 +102,12 @@ type App struct {
 
 	lastCmd  string
 	lastExit string
+
+	updateAvail update.Release // newer release found by the daily check
+	updating    bool
+	restartExe  string // set by "Restart now" after an update
+
+	lastGruntTheme string
 }
 
 // overlay is a modal layer drawn over the main panel.
@@ -173,7 +180,9 @@ func (a *App) builder() plan.Builder {
 	if a.cfg != nil && a.cfg.IntegrationMode != "" {
 		mode = a.cfg.IntegrationMode
 	}
-	return plan.New(a.proj, mode, a.facts.PHPService)
+	b := plan.New(a.proj, mode, a.facts.PHPService)
+	b.DBService = plan.DBServiceFrom(a.services)
+	return b
 }
 
 func (a *App) saveConfig() bool {
@@ -191,7 +200,7 @@ func (a *App) saveConfig() bool {
 // --- tea.Model ---------------------------------------------------------------
 
 func (a *App) Init() tea.Cmd {
-	return tea.Batch(a.probeCmd(), a.servicesCmd(), a.tickCmd())
+	return tea.Batch(a.probeCmd(), a.servicesCmd(), a.tickCmd(), a.autoUpdateCheck())
 }
 
 type statusClearMsg struct{ seq int }
@@ -514,6 +523,11 @@ func (a *App) viewHeader() string {
 		l2 = append(l2, a.proj.Root)
 	}
 	line2 := sFaint.Render(strings.Join(l2, " · "))
+	if a.updateAvail.Tag != "" {
+		note := sWarn.Render("⬆ " + a.updateAvail.Tag + " available — U to update")
+		line2 = truncateStyled(line2, max(inner-lipgloss.Width(note)-2, 0))
+		line2 += strings.Repeat(" ", max(inner-lipgloss.Width(line2)-lipgloss.Width(note), 2)) + note
+	}
 	return sBorder.Width(a.w).Padding(0, 1).Render(line1 + "\n" + truncateStyled(line2, inner))
 }
 

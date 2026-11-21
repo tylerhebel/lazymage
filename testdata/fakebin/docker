@@ -257,6 +257,8 @@ def exec_(rest, st):
         return magento(cmd[1:])
     if cmd[0] == "composer":
         return composer(cmd[1:])
+    if svc == "db" and cmd[0] == "sh" and len(cmd) > 2 and cmd[1] == "-c":
+        return fake_db(cmd[2], cmd[4:])
     if cmd[0] == "sh" and len(cmd) > 2 and cmd[1] == "-c":
         out("[fake container shell — this is your host shell; type exit to return to lazymage]")
         os.execvp("bash", ["bash", "--norc", "-i"])
@@ -273,6 +275,55 @@ def exec_(rest, st):
         time.sleep(3600)
         return 0
     out(" ".join(cmd))
+    return 0
+
+
+def fake_db(script, args):
+    """The db container: dump / import / one-shot query, via lazymage's sh -c scripts."""
+    domain = read("db-domain", "magento.test")
+    rows = [("default", "0", "web/secure/base_url", f"https://{domain}/"),
+            ("default", "0", "web/unsecure/base_url", f"https://{domain}/"),
+            ("default", "0", "web/cookie/cookie_domain", domain)]
+    if "dump" in script:
+        sys.stdout.write("-- fake dump\n")
+        for i in range(3000):
+            sys.stdout.write(f"INSERT INTO `catalog_product_entity` VALUES ({i},'sku-{i}','padding padding padding');\n")
+            if i % 500 == 0:
+                sys.stdout.flush()
+                time.sleep(0.2)
+        sys.stdout.write("INSERT INTO `core_config_data` VALUES ('web/secure/base_url','https://%s/');\n" % domain)
+        return 0
+    if '-e "$1"' in script:
+        sql = args[0] if args else ""
+        if sql.startswith("SELECT ROW_COUNT") or sql.startswith("UPDATE"):
+            m = re.search(r"REPLACE\(value, '([^']*)', '([^']*)'\)", sql)
+            n = sum(1 for r in rows if m and m.group(1) in r[3])
+            if m and n:
+                write("db-domain", domain.replace(m.group(1), m.group(2)))
+            out(str(n))
+            return 0
+        if sql.startswith("SELECT 'theme'"):
+            for r in [("theme", "1", "Magento/backend", "adminhtml:NULL"), ("theme", "2", "Magento/blank", "frontend:NULL"),
+                      ("theme", "3", "Magento/luma", "frontend:2"), ("theme", "4", "Acme/default", "frontend:3"),
+                      ("cfg", "default:0", "design/theme/theme_id", "4"), ("cfg", "default:0", "general/locale/code", "en_US"),
+                      ("cfg", "stores:2", "general/locale/code", "de_DE"),
+                      ("store", "1", "1", "default"), ("store", "2", "1", "german")]:
+                out("\t".join(r))
+            return 0
+        if "base%url" in sql:
+            rows = [r for r in rows if "base_url" in r[2]]
+        else:
+            m = re.search(r"LIKE '%(.*)%'", sql)
+            needle = m.group(1).replace("\\\\", "") if m else ""
+            rows = [r for r in rows if needle in r[3]]
+        for r in rows:
+            out("\t".join(r))
+        return 0
+    data = sys.stdin.buffer.read()
+    m = re.search(rb"base_url','https://([^/']+)/", data)
+    if m:
+        write("db-domain", m.group(1).decode())
+    time.sleep(1)
     return 0
 
 
@@ -293,7 +344,7 @@ def magento(args):
         out(f"Enabled {m} mode.")
     elif a == "config:show":
         if len(args) > 1 and args[1] == "web/secure/base_url":
-            out("https://magento.test/")
+            out(f"https://{read('db-domain', 'magento.test')}/")
         else:
             out("web/secure/base_url - https://magento.test/\nweb/unsecure/base_url - https://magento.test/\ngeneral/locale/code - en_US")
     elif a == "cache:flush":

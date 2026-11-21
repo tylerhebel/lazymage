@@ -44,10 +44,22 @@ type Run struct {
 // Sender delivers messages to the UI (tea.Program.Send).
 type Sender func(msg any)
 
+// IO redirects a run's standard streams. A nil field keeps the default:
+// stdin is a pipe fed by WriteStdin, stdout streams to the UI as Chunks.
+type IO struct {
+	Stdin  io.Reader // e.g. a database dump being imported
+	Stdout io.Writer // e.g. a dump file being written
+}
+
 // Start runs argv in dir. Output is delivered as Chunk messages (batched every
 // ~30ms) and the end as one Exited message. argv[0] beginning with "bin/" is
 // resolved inside dir.
 func Start(id int, dir string, argv []string, env []string, send Sender) (*Run, error) {
+	return StartIO(id, dir, argv, env, send, IO{})
+}
+
+// StartIO is Start with redirected streams. Stderr always streams to the UI.
+func StartIO(id int, dir string, argv []string, env []string, send Sender, rio IO) (*Run, error) {
 	if len(argv) == 0 {
 		return nil, errors.New("empty command")
 	}
@@ -62,13 +74,21 @@ func Start(id int, dir string, argv []string, env []string, send Sender) (*Run, 
 
 	agg := newAggregator(id, send)
 	cmd.Stdout = agg.writer(false)
+	if rio.Stdout != nil {
+		cmd.Stdout = rio.Stdout
+	}
 	cmd.Stderr = agg.writer(true)
 	// docker-magento's bin/start leaves a background watcher holding our pipes
 	// open after the script itself exits; don't wait on it forever.
 	cmd.WaitDelay = 1500 * time.Millisecond
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return nil, err
+	var stdin io.WriteCloser
+	if rio.Stdin != nil {
+		cmd.Stdin = rio.Stdin
+	} else {
+		var err error
+		if stdin, err = cmd.StdinPipe(); err != nil {
+			return nil, err
+		}
 	}
 	r := &Run{ID: id, Argv: argv, Started: time.Now(), cmd: cmd, stdin: stdin, done: make(chan struct{})}
 	if err := cmd.Start(); err != nil {
@@ -97,12 +117,19 @@ func Start(id int, dir string, argv []string, env []string, send Sender) (*Run, 
 
 // WriteStdin sends a line of input to the child.
 func (r *Run) WriteStdin(s string) error {
+	if r.stdin == nil {
+		return errors.New("this command reads its input from a file")
+	}
 	_, err := io.WriteString(r.stdin, s)
 	return err
 }
 
 // CloseStdin sends EOF.
-func (r *Run) CloseStdin() { _ = r.stdin.Close() }
+func (r *Run) CloseStdin() {
+	if r.stdin != nil {
+		_ = r.stdin.Close()
+	}
+}
 
 // Cancel interrupts the child's process group, escalating to SIGTERM after 3s
 // and SIGKILL after 6s. It does not block.

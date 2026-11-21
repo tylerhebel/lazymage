@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"bytes"
 	"strings"
 	"sync"
 	"testing"
@@ -111,5 +112,37 @@ func TestRelativeBinResolvesInDir(t *testing.T) {
 	stdout, _, code, err := Capture(dir, []string{"sh", "-c", "pwd"}, 2*time.Second)
 	if err != nil || code != 0 || !strings.Contains(stdout, dir[len(dir)-8:]) {
 		t.Fatalf("%q %d %v", stdout, code, err)
+	}
+}
+
+func TestStartIORedirects(t *testing.T) {
+	var out bytes.Buffer
+	msgs := make(chan any, 100)
+	r, err := StartIO(1, t.TempDir(), []string{"sh", "-c", "tr a-z A-Z; echo oops >&2"}, nil, func(m any) { msgs <- m }, IO{Stdin: strings.NewReader("hello\n"), Stdout: &out})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-r.Done()
+	var stderr string
+	for {
+		m := <-msgs
+		if c, ok := m.(Chunk); ok {
+			if !c.Stderr {
+				t.Errorf("stdout leaked to the UI: %q", c.Data)
+			}
+			stderr += c.Data
+		}
+		if e, ok := m.(Exited); ok {
+			if e.Code != 0 {
+				t.Fatalf("exit %d", e.Code)
+			}
+			break
+		}
+	}
+	if out.String() != "HELLO\n" || stderr != "oops\n" {
+		t.Fatalf("stdout %q stderr %q", out.String(), stderr)
+	}
+	if r.WriteStdin("x") == nil {
+		t.Error("WriteStdin should refuse when stdin is a file")
 	}
 }

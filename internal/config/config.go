@@ -97,6 +97,7 @@ type Config struct {
 	Browser         string              `yaml:"browser"`
 	Logs            Logs                `yaml:"logs"`
 	RefreshSeconds  int                 `yaml:"refresh_seconds"`
+	UpdateCheck     *bool               `yaml:"update_check,omitempty"` // nil = on
 	Favorites       []string            `yaml:"favorites"`
 	CustomCommands  []CustomCommand     `yaml:"custom_commands"`
 	Projects        map[string]*Project `yaml:"projects"`
@@ -357,6 +358,9 @@ func (c *Config) AddHistory(root string, e HistoryEntry) {
 		p.History = append([]HistoryEntry(nil), p.History[n-HistoryCap:]...)
 	}
 }
+
+// CheckUpdates reports whether to look for a new release once a day.
+func (c *Config) CheckUpdates() bool { return c.UpdateCheck == nil || *c.UpdateCheck }
 
 func (c *Config) IsFavorite(cmd string) bool { return contains(c.Favorites, cmd) }
 

@@ -12,10 +12,14 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"lazymage/internal/config"
+	"lazymage/internal/plan"
 	"lazymage/internal/runner"
 )
 
-type shellDoneMsg struct{ err error }
+type shellDoneMsg struct {
+	err  error
+	what string // "" means the container shell
+}
 type editorDoneMsg struct {
 	err    error
 	reload bool
@@ -40,6 +44,8 @@ func (a *App) do(action string) tea.Cmd {
 		return a.startWizard(false, nil)
 	case aQuit:
 		return a.quit()
+	case aUpdate:
+		return a.startUpdate()
 	case aNextTab:
 		a.tab, a.showO = (a.tab+1)%3, false
 	case aPrevTab:
@@ -95,6 +101,18 @@ func (a *App) do(action string) tea.Cmd {
 		return openURL(a.cfg.Browser, a.adminURL(), "admin")
 	case aCopyURL:
 		return a.copyText(a.storefrontURL())
+	case aFEThemes, aFEEditThemes, aFESetupGrunt, aFENpmInstall, aFEGruntBuild, aFEGruntLess, aFEGruntWatch, aFEGruntFree:
+		return a.doFrontend(action)
+
+	case aDBDump:
+		return a.dbDumpPrompt()
+	case aDBImport:
+		a.push(newDumpPicker(a))
+	case aDBShell:
+		return a.dbShell()
+	case aDBReplaceURL:
+		return a.dbReplaceURLs()
+
 	case aEditEnv:
 		return a.edit(filepath.Join(a.proj.Root, ".env"), false)
 	case aEditConfig:
@@ -127,7 +145,7 @@ func (a *App) do(action string) tea.Cmd {
 // disabledReason says why an action cannot run right now ("" = it can).
 func (a *App) disabledReason(action string) string {
 	switch action {
-	case aPalette, aHelp, aSettings, aSetup, aQuit, aNewCustom, aManage, aEditConfig,
+	case aPalette, aHelp, aSettings, aSetup, aQuit, aUpdate, aNewCustom, aManage, aEditConfig,
 		aNextTab, aPrevTab, aTab1, aTab2, aTab3, aCancelRun, aViewOutput:
 		return ""
 	}
@@ -145,6 +163,12 @@ func (a *App) disabledReason(action string) string {
 			return "the engine is starting"
 		}
 		return ""
+	case aFEEditThemes:
+		return ""
+	case aFESetupGrunt:
+		if !a.proj.HasBin("setup-grunt") {
+			return "this project has no bin/setup-grunt"
+		}
 	case aEditEnv:
 		if _, err := os.Stat(filepath.Join(a.proj.Root, ".env")); err != nil {
 			return "this project has no .env file"
@@ -176,6 +200,15 @@ func (a *App) disabledReason(action string) string {
 		// Still probing: allow, the command will report its own error.
 	}
 	switch action {
+	case aDBDump, aDBImport, aDBReplaceURL, aFEThemes:
+		return a.dbDisabled()
+	case aFESetupGrunt, aFENpmInstall, aFEGruntBuild, aFEGruntLess, aFEGruntWatch, aFEGruntFree:
+		return a.feDisabled()
+	case aDBShell:
+		if len(a.services) > 0 && plan.DBServiceFrom(a.services) == "" {
+			return "no database service (db, mysql or mariadb) in the compose files"
+		}
+		return ""
 	case aStackStart, aStackStop, aStackRestart, aMageFree, aComposerFree:
 		if a.run != nil {
 			return "a command is already running (ctrl+c cancels it)"
@@ -223,6 +256,12 @@ type runOpts struct {
 	refresh   bool   // refresh cached facts afterwards
 	lifecycle bool   // show per-service progress
 	hostShell bool
+
+	display string                      // shown instead of the argv (e.g. "… < dump.sql")
+	rio     runner.IO                   // redirected stdin / stdout
+	noStdin bool                        // hide the stdin field (input comes from a file)
+	meter   func() string               // live progress line (bytes written, % read)
+	onExit  func(runner.Exited) tea.Cmd // runs after the exit is recorded
 }
 
 // startRun shows the exact command, then streams it into the output view.
@@ -237,6 +276,9 @@ func (a *App) startRun(argv []string, o runOpts) tea.Cmd {
 	id := a.runSeq
 	a.status = ""
 	display := config.JoinArgs(argv)
+	if o.display != "" {
+		display = o.display
+	}
 	a.out = newOutputView(id, display, o)
 	a.showO = true
 	a.out.buf.Note("$ " + display)
@@ -244,13 +286,17 @@ func (a *App) startRun(argv []string, o runOpts) tea.Cmd {
 		a.out.buf.Note("host shell command — runs on your machine, not in a container")
 	}
 	a.log.printf("run: %s", config.JoinArgs(config.RedactArgs(argv)))
-	r, err := runner.Start(id, a.proj.Root, argv, nil, a.sendAny)
+	r, err := runner.StartIO(id, a.proj.Root, argv, nil, a.sendAny, o.rio)
 	if err != nil {
 		a.out.buf.Note("could not start: " + err.Error())
 		code := -1
 		a.out.exit = &runner.Exited{RunID: id, Code: code, Err: err}
 		a.recordHistory(argv, o.kind, time.Now(), 0, code)
-		return a.setStatus("could not start: "+err.Error(), true)
+		status := a.setStatus("could not start: "+err.Error(), true)
+		if o.onExit != nil {
+			return tea.Batch(status, o.onExit(*a.out.exit))
+		}
+		return status
 	}
 	a.run = r
 	cmds := []tea.Cmd{a.out.focus(), runTick(id)}
@@ -327,6 +373,9 @@ func (a *App) routeExit(e runner.Exited) tea.Cmd {
 		cmds = append(cmds, a.setStatus("done: "+a.lastCmd, false))
 	} else {
 		cmds = append(cmds, a.setStatus(a.lastCmd+" — "+a.lastExit, true))
+	}
+	if a.out.opts.onExit != nil {
+		cmds = append(cmds, a.out.opts.onExit(e))
 	}
 	return tea.Batch(cmds...)
 }
@@ -515,7 +564,7 @@ func (a *App) shell() tea.Cmd {
 		if _, ok := err.(*exec.ExitError); ok {
 			err = nil // a non-zero exit from the last command in the shell is not an error
 		}
-		return shellDoneMsg{err}
+		return shellDoneMsg{err: err}
 	})
 }
 
