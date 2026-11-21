@@ -289,7 +289,7 @@ func (a *App) startEngineFor(rt string) tea.Cmd {
 	}
 	p := docker.StartPlanFor(rt)
 	if p.ShowOnly != "" {
-		a.engineNote = "lazymage does not start Docker Engine on Linux for you. Run:\n\n    " + sBold.Render(p.ShowOnly) + "\n\nthen press r."
+		a.engineNote = "lazymage does not start this engine for you:\n\n    " + sBold.Render(p.ShowOnly) + "\n\nthen press r."
 		return a.setStatus("run: "+p.ShowOnly, false)
 	}
 	a.engineStarting = true

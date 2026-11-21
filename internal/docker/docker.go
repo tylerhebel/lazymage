@@ -157,7 +157,13 @@ func Candidates(in Info) []Candidate {
 
 	eng := Candidate{Runtime: config.RuntimeDockerEngine}
 	if runtime.GOOS == "linux" {
+		// Under WSL with Docker Desktop integration, /var/run/docker.sock is
+		// Desktop's proxy socket, not a Docker Engine install.
+		desktopSock := in.Reachable && in.Detected == config.RuntimeDockerDesktop
 		for _, p := range []string{"/usr/bin/dockerd", "/usr/local/bin/dockerd", "/var/run/docker.sock"} {
+			if p == "/var/run/docker.sock" && desktopSock {
+				continue
+			}
 			if exists(p) {
 				eng.Installed = true
 				eng.Evidence = append(eng.Evidence, p)
@@ -224,6 +230,10 @@ func StartPlanFor(rt string) StartPlan {
 		if runtime.GOOS == "darwin" {
 			return StartPlan{Argv: []string{"open", "-a", "Docker"}}
 		}
+		if IsWSL() {
+			// Desktop runs on the Windows side; there is nothing to start in WSL.
+			return StartPlan{ShowOnly: "start Docker Desktop on Windows (with WSL integration on)"}
+		}
 		return StartPlan{Argv: []string{"systemctl", "--user", "start", "docker-desktop"}}
 	default:
 		if runtime.GOOS == "darwin" {
@@ -231,6 +241,18 @@ func StartPlanFor(rt string) StartPlan {
 		}
 		return StartPlan{ShowOnly: "sudo systemctl start docker"}
 	}
+}
+
+// IsWSL reports whether lazymage runs inside Windows Subsystem for Linux.
+func IsWSL() bool {
+	if runtime.GOOS != "linux" {
+		return false
+	}
+	if os.Getenv("WSL_DISTRO_NAME") != "" {
+		return true
+	}
+	b, err := os.ReadFile("/proc/sys/kernel/osrelease")
+	return err == nil && strings.Contains(strings.ToLower(string(b)), "microsoft")
 }
 
 // Container is one row of compose status.
@@ -445,6 +467,7 @@ func Summarize(expected []string, cs []Container) Summary {
 func IsEngineDown(stderr string) bool {
 	s := strings.ToLower(stderr)
 	return strings.Contains(s, "cannot connect to the docker daemon") ||
+		strings.Contains(s, "failed to connect to the docker api") || // Docker CLI 29+
 		strings.Contains(s, "is the docker daemon running") ||
 		strings.Contains(s, "error during connect") ||
 		strings.Contains(s, "connection refused") && strings.Contains(s, "docker") ||

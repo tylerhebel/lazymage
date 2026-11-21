@@ -54,3 +54,23 @@ orb stop && /path/to/lazymage/scripts/capture-ground-truth.sh ./lazymage-ground-
 - [ ] `docker compose logs -f` behaviour when a followed container restarts
       (lazymage reconnects either way).
 - [ ] Time to first screen < 500 ms with a warm facts cache.
+
+## Real-engine pass: WSL2 + Docker Desktop (2026-11-21)
+
+Docker Desktop 29.9.3 (WSL integration, `default` context →
+`/var/run/docker.sock`), Compose v5.7.0. The project was made by
+`scripts/demo-project.sh` (docker-magento compose files, no Magento source) and
+started with the real `bin/start`.
+
+| Check | Result |
+|---|---|
+| `bin/start` | Works; memory check passes (Docker reports 31 GiB). It never exits on its own because the background `cache-clean --watch` keeps stdout open, which confirms the WaitDelay handling. |
+| `docker compose ps --format json` | NDJSON (one object per line). |
+| Header health | `◐ some down 8/9 up` was correct: `app` (nginx) exits on the demo's stub `nginx.conf`. |
+| Runtime detection | Classified as Docker Desktop. **Fixed:** the Docker Engine row showed "installed, not running" because `/var/run/docker.sock` is Desktop's proxy socket under WSL. |
+| Engine-stopped stderr | Docker CLI 29 says `failed to connect to the docker API at …`, not "Cannot connect to the Docker daemon". **Fixed:** this is now matched explicitly; before, it matched only through the `.sock` + "no such file" fallback. |
+| Engine start on WSL | **Fixed:** this used to offer `systemctl --user start docker-desktop`, which does nothing under WSL. It is now a show-only "start Docker Desktop on Windows". |
+| `docker compose logs -f` across a restart | Compose v5 keeps following on its own and prints `redis-1 exited with code 0 (restarting)`. No reconnect was needed. |
+| `bin/clinotty bin/magento …` | Without Magento source it exits 127 with the OCI "no such file" error; the output view shows it and the exit code. `--version` is still unchecked until a real install exists. |
+| Shell (`s`) | The login shell `/usr/bin/zsh` isn't in the container, so it falls back to bash with a note. `exit` returns to the TUI. |
+

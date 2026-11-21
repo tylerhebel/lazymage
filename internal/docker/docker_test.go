@@ -59,6 +59,9 @@ func TestEngineDown(t *testing.T) {
 	if !IsEngineDown("Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?") {
 		t.Fatal("expected engine down")
 	}
+	if !IsEngineDown("failed to connect to the docker API at unix:///var/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /var/run/docker.sock: connect: connection refused") {
+		t.Fatal("expected engine down (Docker CLI 29 wording)")
+	}
 	if IsEngineDown("no such service: foo") {
 		t.Fatal("false positive")
 	}
